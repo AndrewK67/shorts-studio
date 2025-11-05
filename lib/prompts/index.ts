@@ -1,15 +1,15 @@
-import { UserProfile, RegionalConfig, Project, Holiday, CustomEvent } from '../types';
+import { UserProfile, RegionalConfig, Project, Holiday, CulturalEvent } from '../types';
 
 export interface TopicGenerationContext {
   profile: UserProfile;
   regional: RegionalConfig;
   project: Project;
-  customEvents: any[];
+  customEvents: CulturalEvent[];
 }
 
 export function buildTopicGenerationPrompt(context: TopicGenerationContext): string {
   const { profile, regional, project, customEvents } = context;
-  
+
   const toneDistribution = Object.entries(project.toneMix)
     .map(([tone, percentage]) => {
       const count = Math.round((percentage / 100) * project.videosNeeded);
@@ -28,7 +28,7 @@ export function buildTopicGenerationPrompt(context: TopicGenerationContext): str
     .join('\n');
 
   const formattedCustomEvents = customEvents
-    .map(e => `- ${e.name} (${e.date}) - ${e.eventType} - ${e.notes}`)
+    .map(e => `- ${e.name} (${e.date}) - ${e.description}`)
     .join('\n');
 
   return `You are an expert YouTube Shorts content strategist. Generate ${project.videosNeeded} high-potential YouTube Shorts topics customized for this creator's unique context.
