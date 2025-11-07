@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import Navigation from '../components/Navigation'
+import Navigation from '../../components/Navigation'
 
 export default function DashboardPage() {
   const [profile, setProfile] = useState<any>(null)
