@@ -78,7 +78,7 @@ CRITICAL: All content must reflect ${regionalConfig.location} context - use appr
 
     const message = await anthropic.messages.create({
   model: 'claude-sonnet-4-20250514',
-      max_tokens: 16000,
+      max_tokens: 4000,
       temperature: 1,
       messages: [
         {

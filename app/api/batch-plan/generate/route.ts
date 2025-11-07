@@ -124,7 +124,7 @@ Return ONLY valid JSON with this structure:
 
     const message = await anthropic.messages.create({
   model: 'claude-sonnet-4-20250514',
-      max_tokens: 16000,
+      max_tokens: 4000,
       messages: [
         {
           role: 'user',
