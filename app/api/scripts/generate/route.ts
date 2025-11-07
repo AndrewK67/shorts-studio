@@ -158,7 +158,7 @@ Return ONLY valid JSON with this structure (no markdown, no explanation):
 
       const message = await anthropic.messages.create({
         // 4. FIX THE MODEL NAME
-        model: 'claude-3-sonnet-20240229',
+        model: 'claude-3-haiku-20240307',
         max_tokens: 4000,
         messages: [
           {
