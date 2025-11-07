@@ -5,6 +5,16 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
 })
 
+// Helper function to parse the AI's JSON response
+function parseAIResponse(responseText: string): any[] {
+  let jsonText = responseText
+  const jsonMatch = responseText.match(/```json\n?([\s\S]*?)\n?```/)
+  if (jsonMatch) {
+    jsonText = jsonMatch[1]
+  }
+  return JSON.parse(jsonText)
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -17,101 +27,92 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Handle missing regional config - create from profile
-    const regionalConfig = regional || {
-      location: userProfile.location || 'London',
-      countryCode: userProfile.country === 'United Kingdom' ? 'GB' : 
-                   userProfile.country === 'United States' ? 'US' : 'GB',
-      language: userProfile.country === 'United Kingdom' ? 'British English' : 'American English'
-    }
+    const { videosNeeded } = projectConfig
+    const allTopics = []
+    const batchSize = 10 // Generate 10 topics at a time
+    const numBatches = Math.ceil(videosNeeded / batchSize)
 
-    const prompt = `Generate ${projectConfig.videosNeeded} YouTube Shorts topic ideas for a creator in the ${userProfile.niche} niche. 
+    for (let i = 0; i < numBatches; i++) {
+      const remainingTopics = videosNeeded - allTopics.length
+      const topicsToGenerate = Math.min(batchSize, remainingTopics)
+      
+      const prompt = `You are an expert YouTube Shorts content strategist. Generate ${topicsToGenerate} high-potential YouTube Shorts topics customized for this creator's unique context.
 
-CRITICAL REGIONAL CONTEXT:
-- Location: ${regionalConfig.location}
-- Country: ${regionalConfig.countryCode}
-- Language: ${regionalConfig.language}
-- Currency: ${regionalConfig.countryCode === 'GB' ? 'GBP (£)' : regionalConfig.countryCode === 'US' ? 'USD ($)' : 'local currency'}
+      CREATOR PROFILE:
+      Name: ${userProfile.name}
+      Channel: ${userProfile.channelName}
+      Niche: ${userProfile.niche}
+      Unique Angle: ${userProfile.uniqueAngle}
 
-IMPORTANT TERMINOLOGY NOTES:
-${regionalConfig.countryCode === 'GB' ? `
-- When mentioning "holiday" in UK context, this means VACATION/TRIP (going away), NOT seasonal holidays like Christmas
-- Use British English spelling and terminology
-- Prices should be in GBP (£)
-- Refer to "shops" not "stores", "flat" not "apartment", etc.
-` : ''}
+      VOICE & TONE:
+      Primary Tone (60%): ${userProfile.primaryTone}
+      Secondary Tone (25%): ${userProfile.secondaryTone}
+      Accent Tone (15%): ${userProfile.accentTone}
 
-CREATOR PROFILE:
-- Niche: ${userProfile.niche}
-- Location: ${regionalConfig.location}
-- Primary Tone: ${userProfile.primaryTone || 'conversational'}
+      PROJECT DETAILS:
+      Month: ${projectConfig.month}
+      Total Videos Needed: ${videosNeeded}
 
-TONE MIX FOR THIS BATCH:
-${Object.entries(projectConfig.toneMix || {})
-  .map(([tone, percentage]) => `- ${tone}: ${percentage}%`)
-  .join('\n')}
+      TONE DISTRIBUTION:
+      ${Object.entries(projectConfig.toneMix)
+        .map(([tone, percentage]) => `- ${tone}: ${percentage}%`)
+        .join('\n')}
 
-Generate ${projectConfig.videosNeeded} diverse topic ideas that:
-1. Match the tone distribution above
-2. Are relevant to ${regionalConfig.location} and ${regionalConfig.countryCode} culture
-3. Include mix of evergreen and timely content
-4. Have strong hooks that stop the scroll
-
-Return ONLY a JSON array with this exact structure (no markdown, no explanation):
-[
-  {
-    "title": "Topic title",
-    "hook": "Attention-grabbing opening question or statement",
-    "coreValue": "What viewers will learn or feel",
-    "emotionalDriver": "curiosity|surprise|nostalgia|inspiration|humor",
-    "formatType": "story|tips|facts|question|challenge",
-    "tone": "storytelling|educational|emotional|calming|humor",
-    "longevity": "evergreen|seasonal|trending",
-    "dateRangeStart": "2025-12-01",
-    "dateRangeEnd": "2025-12-10",
-    "factCheckStatus": "opinion|verified|needs_review",
-    "orderIndex": 1
-  }
-]
-
-CRITICAL: All content must reflect ${regionalConfig.location} context - use appropriate terminology, currency, and cultural references.`
-
-    const message = await anthropic.messages.create({
-  model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
-      temperature: 1,
-      messages: [
+      OUTPUT FORMAT (JSON):
+      Return a JSON array of exactly ${topicsToGenerate} topics with this structure:
+      [
         {
-          role: 'user',
-          content: prompt
+          "title": "Topic title",
+          "hook": "The 3-second opening line...",
+          "coreValue": "What viewers will learn/feel",
+          "emotionalDriver": "surprise|nostalgia|awe|etc",
+          "formatType": "story|tutorial|list|etc",
+          "tone": "emotional|calming|storytelling|educational|humor|inspirational",
+          "longevity": "evergreen|seasonal|trending",
+          "dateRangeStart": "2025-12-01",
+          "dateRangeEnd": "2025-12-15",
+          "factCheckStatus": "verified|needs_review|opinion",
+          "orderIndex": 1
         }
       ]
-    })
 
-    const responseText = message.content[0].type === 'text' 
-      ? message.content[0].text 
-      : ''
+      Generate the complete list now:`
 
-    let jsonText = responseText
-    const jsonMatch = responseText.match(/```json\n?([\s\S]*?)\n?```/)
-    if (jsonMatch) {
-      jsonText = jsonMatch[1]
+      const message = await anthropic.messages.create({
+        model: 'claude-3-haiku-20240307',
+        max_tokens: 4000, // This is now safe, as we're only asking for 10
+        temperature: 1,
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+      })
+
+      const responseText =
+        message.content[0].type === 'text' ? message.content[0].text : ''
+      const topicsBatch = parseAIResponse(responseText)
+      allTopics.push(...topicsBatch)
     }
 
-    const topics = JSON.parse(jsonText)
+    // Re-order topics by index
+    const orderedTopics = allTopics.map((topic, index) => ({
+      ...topic,
+      id: `${projectConfig.month}-${index + 1}`, // Give it a stable ID
+      orderIndex: index + 1,
+    }))
 
     return NextResponse.json({
-      topics,
-      message: `Generated ${topics.length} topics successfully`
+      topics: orderedTopics,
+      message: `Generated ${orderedTopics.length} topics successfully`,
     })
-
   } catch (error) {
     console.error('Error generating topics:', error)
-    
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to generate topics',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     )
