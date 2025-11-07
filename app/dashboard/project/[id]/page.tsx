@@ -41,7 +41,7 @@ export default function ProjectDetailPage() {
 
   const selectAll = () => {
     if (project?.topics) {
-      const allIds = new Set(project.topics.map((t: any) => t.id))
+      const allIds = new Set<string>(project.topics.map((t: any) => t.id as string))
       setSelectedTopics(allIds)
     }
   }
