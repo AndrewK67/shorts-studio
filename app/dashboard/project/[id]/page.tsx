@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 // 1. Import the new modal component
-import EditProjectModal from '@/components/EditProjectModal'
+import EditProjectModal from '../../../../components/EditProjectModal'
 
 // (Keep your existing component code)
 // ...
