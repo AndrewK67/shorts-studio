@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import Navigation from '../../../components/Navigation'
+import Navigation from '@/components/Navigation'
 
 export default function ProjectDetailPage() {
   const params = useParams()
@@ -14,7 +14,6 @@ export default function ProjectDetailPage() {
 
   useEffect(() => {
     try {
-      // Get projects from localStorage
       const savedProjects = localStorage.getItem('projects')
       
       if (!savedProjects) {
@@ -41,7 +40,6 @@ export default function ProjectDetailPage() {
     }
   }, [params.id])
 
-  // Loading state
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -56,7 +54,6 @@ export default function ProjectDetailPage() {
     )
   }
 
-  // Error state
   if (error || !project) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -81,7 +78,6 @@ export default function ProjectDetailPage() {
     )
   }
 
-  // Success state - show project
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
@@ -113,17 +109,28 @@ export default function ProjectDetailPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Quick Actions */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Link
-            href={`/dashboard/project/${project.id}/topics`}
-            className="p-6 bg-white rounded-lg border-2 border-gray-200 hover:border-blue-500 hover:shadow-md transition-all"
-          >
+          <div className="p-6 bg-white rounded-lg border-2 border-gray-200">
             <h3 className="font-semibold text-lg text-gray-900 mb-2">
-              📝 View Topics
+              📝 Topics
             </h3>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-600 mb-4">
               {project.topics?.length || 0} topics generated
             </p>
-          </Link>
+            {project.topics && project.topics.length > 0 && (
+              <button
+                onClick={() => {
+                  const topicsText = project.topics
+                    .map((t: any, i: number) => `${i + 1}. ${t.title}\n   Hook: "${t.hook}"\n`)
+                    .join('\n')
+                  navigator.clipboard.writeText(topicsText)
+                  alert('Topics copied to clipboard!')
+                }}
+                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+              >
+                Copy All Topics
+              </button>
+            )}
+          </div>
 
           <Link
             href={`/dashboard/project/${project.id}/scripts`}
@@ -150,11 +157,13 @@ export default function ProjectDetailPage() {
           </Link>
         </div>
 
-        {/* Topics Preview */}
-        {project.topics && project.topics.length > 0 && (
+        {/* Topics Display */}
+        {project.topics && project.topics.length > 0 ? (
           <div className="bg-white rounded-lg border border-gray-200 p-6 mb-8">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-gray-900">Topics</h2>
+              <h2 className="text-xl font-bold text-gray-900">
+                Your {project.topics.length} Topics
+              </h2>
               <Link
                 href={`/dashboard/project/${project.id}/scripts`}
                 className="text-sm text-blue-600 hover:text-blue-700 font-medium"
@@ -162,19 +171,23 @@ export default function ProjectDetailPage() {
                 Generate Scripts →
               </Link>
             </div>
-            <div className="space-y-3">
-              {project.topics.slice(0, 5).map((topic: any, index: number) => (
+            
+            <div className="space-y-3 max-h-[600px] overflow-y-auto">
+              {project.topics.map((topic: any, index: number) => (
                 <div
                   key={topic.id || index}
-                  className="p-4 bg-gray-50 rounded-lg border border-gray-200"
+                  className="p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-colors"
                 >
-                  <div className="flex items-start justify-between">
+                  <div className="flex items-start gap-3">
+                    <span className="text-sm font-bold text-gray-500 mt-1">
+                      #{index + 1}
+                    </span>
                     <div className="flex-1">
                       <h3 className="font-semibold text-gray-900 mb-1">
                         {topic.title}
                       </h3>
-                      <p className="text-sm text-gray-600 mb-2">
-                        {topic.hook}
+                      <p className="text-sm text-gray-600 mb-2 italic">
+                        "{topic.hook}"
                       </p>
                       <div className="flex gap-2 flex-wrap">
                         <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded">
@@ -186,25 +199,39 @@ export default function ProjectDetailPage() {
                         <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded">
                           {topic.formatType}
                         </span>
+                        {topic.emotionalDriver && (
+                          <span className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded">
+                            {topic.emotionalDriver}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
                 </div>
               ))}
-              {project.topics.length > 5 && (
-                <Link
-                  href={`/dashboard/project/${project.id}/topics`}
-                  className="block text-center py-3 text-sm text-blue-600 hover:text-blue-700 font-medium"
-                >
-                  View all {project.topics.length} topics →
-                </Link>
-              )}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-gray-200 flex justify-between items-center">
+              <button
+                onClick={() => {
+                  const allTopics = project.topics
+                    .map((t: any, i: number) => 
+                      `${i + 1}. ${t.title}\n   Hook: "${t.hook}"\n   Tone: ${t.tone} | Type: ${t.longevity}\n`
+                    )
+                    .join('\n')
+                  navigator.clipboard.writeText(allTopics)
+                  alert(`All ${project.topics.length} topics copied to clipboard!`)
+                }}
+                className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+              >
+                📋 Copy All to Clipboard
+              </button>
+              <p className="text-sm text-gray-500">
+                Scroll to see all {project.topics.length} topics
+              </p>
             </div>
           </div>
-        )}
-
-        {/* No topics yet */}
-        {(!project.topics || project.topics.length === 0) && (
+        ) : (
           <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
               No topics yet
