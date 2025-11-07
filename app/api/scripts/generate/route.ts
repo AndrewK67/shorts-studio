@@ -183,7 +183,7 @@ Return ONLY valid JSON with this structure (no markdown, no explanation):
         topicId: topic.id,
         topicTitle: topic.title,
         ...scriptData,
-        // This is a new field to store what mode was used
+        // 5. This is a new field to store what mode was used
         productionMode: productionMode || 'traditional',
         verificationStatus: scriptData.factCheckNotes.requiresVerification
           ? 'needs_review'
