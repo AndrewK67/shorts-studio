@@ -3,153 +3,236 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import Navigation from '../../../../../components/Navigation'
 
 export default function ScriptsPage() {
   const params = useParams()
   const router = useRouter()
   const [project, setProject] = useState<any>(null)
-  const [generatingPlan, setGeneratingPlan] = useState(false)
-  // 1. Add state to track selected scripts
-  const [selectedScriptIds, setSelectedScriptIds] = useState<string[]>([])
+  const [selectedTopics, setSelectedTopics] = useState<any[]>([])
+  const [generating, setGenerating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [progress, setProgress] = useState(0)
 
   useEffect(() => {
-    // ... (your existing useEffect is perfect)
-  }, [params.id, router])
-
-  // 2. Add functions to handle selection
-  const handleSelectScript = (scriptId: string) => {
-    setSelectedScriptIds((prev) =>
-      prev.includes(scriptId)
-        ? prev.filter((id) => id !== scriptId)
-        : [...prev, scriptId]
-    )
-  }
-
-  const handleSelectAll = () => {
-    if (selectedScriptIds.length === scripts.length) {
-      setSelectedScriptIds([])
-    } else {
-      setSelectedScriptIds(scripts.map((s: any) => s.topicId)) // Use a unique ID
+    // Load project
+    const savedProjects = localStorage.getItem('projects')
+    if (savedProjects) {
+      const projects = JSON.parse(savedProjects)
+      const currentProject = projects.find((p: any) => p.id === params.id)
+      if (currentProject) {
+        setProject(currentProject)
+        
+        // Load selected topic IDs
+        const selectedIds = JSON.parse(localStorage.getItem('selectedTopicIds') || '[]')
+        
+        if (selectedIds.length === 0) {
+          setError('No topics selected. Please go back and select topics first.')
+          return
+        }
+        
+        // Filter to only selected topics
+        const topics = currentProject.topics?.filter((t: any) => 
+          selectedIds.includes(t.id)
+        ) || []
+        
+        setSelectedTopics(topics)
+      }
     }
-  }
+  }, [params.id])
 
-  const handleCreateBatchPlan = async () => {
-    // 3. Check selection
-    if (selectedScriptIds.length === 0) {
-      alert('Please select at least one script to include in the batch plan.')
-      return
-    }
+  const handleGenerateScripts = async () => {
+    if (!project || selectedTopics.length === 0) return
 
-    setGeneratingPlan(true)
+    setGenerating(true)
+    setError(null)
+    setProgress(0)
 
     try {
-      const profile = JSON.parse(localStorage.getItem('userProfile') || '{}')
+      const userProfile = JSON.parse(localStorage.getItem('userProfile') || '{}')
       
-      // 4. Filter scripts based on selection
-      const selectedScripts = project.scripts.filter((s: any) =>
-        selectedScriptIds.includes(s.topicId)
-      )
+      // Generate scripts for each selected topic
+      const generatedScripts = []
+      
+      for (let i = 0; i < selectedTopics.length; i++) {
+        const topic = selectedTopics[i]
+        setProgress(Math.round(((i + 1) / selectedTopics.length) * 100))
+        
+        try {
+          const response = await fetch('/api/scripts/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userProfile,
+              topic,
+              projectConfig: {
+                month: project.month,
+              }
+            })
+          })
 
-      const response = await fetch('/api/batch-plan/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          // 5. Send only the selected scripts
-          scripts: selectedScripts,
-          profile,
-          filmingHours: 8,
-        }),
-      })
+          if (!response.ok) {
+            throw new Error(`Failed to generate script for: ${topic.title}`)
+          }
 
-      // ... (rest of your function is perfect)
-    } catch (error) {
-      // ... (your error handling)
+          const data = await response.json()
+          generatedScripts.push(data.script)
+        } catch (err) {
+          console.error(`Error generating script ${i + 1}:`, err)
+          // Continue with next script even if one fails
+        }
+      }
+
+      if (generatedScripts.length === 0) {
+        throw new Error('Failed to generate any scripts')
+      }
+
+      // Save scripts to project
+      const savedProjects = localStorage.getItem('projects')
+      if (savedProjects) {
+        const projects = JSON.parse(savedProjects)
+        const projectIndex = projects.findIndex((p: any) => p.id === params.id)
+        
+        if (projectIndex !== -1) {
+          projects[projectIndex].scripts = [
+            ...(projects[projectIndex].scripts || []),
+            ...generatedScripts
+          ]
+          localStorage.setItem('projects', JSON.stringify(projects))
+        }
+      }
+
+      // Clear selected topics
+      localStorage.removeItem('selectedTopicIds')
+
+      // Redirect to project page
+      alert(`Successfully generated ${generatedScripts.length} scripts!`)
+      router.push(`/dashboard/project/${project.id}`)
+
+    } catch (err) {
+      console.error('Error generating scripts:', err)
+      setError(err instanceof Error ? err.message : 'Failed to generate scripts')
     } finally {
-      setGeneratingPlan(false)
+      setGenerating(false)
     }
   }
 
   if (!project) {
-    // ... (your loading state)
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navigation />
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading...</p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
-  const scripts = project.scripts || []
-  const hasBatchPlan = project.batchPlan
+  if (error && !generating) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navigation />
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center max-w-md">
+            <div className="text-6xl mb-4">⚠️</div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Error</h2>
+            <p className="text-gray-600 mb-6">{error}</p>
+            <Link
+              href={`/dashboard/project/${project.id}`}
+              className="inline-block px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              ← Back to Project
+            </Link>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header>{/* ... (your header) ... */}</header>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex gap-4 mb-6">
-          {/* ... (your View Batch Plan link) ... */}
-          
-          {scripts.length >= 3 && (
-            <button
-              onClick={handleCreateBatchPlan}
-              disabled={generatingPlan || selectedScriptIds.length === 0}
-              className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold disabled:opacity-50"
-            >
-              {generatingPlan
-                ? 'Creating Batch Plan...'
-                : `Create Batch Plan (${selectedScriptIds.length})`}
-            </button>
-          )}
+      <Navigation />
+      
+      <header className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <Link
+            href={`/dashboard/project/${project.id}`}
+            className="text-sm text-blue-600 hover:text-blue-700 mb-2 inline-block"
+          >
+            ← Back to Project
+          </Link>
+          <h1 className="text-3xl font-bold text-gray-900">Generate Scripts</h1>
+          <p className="text-sm text-gray-600 mt-1">
+            {selectedTopics.length} topics selected
+          </p>
         </div>
+      </header>
 
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">
-              Scripts ({scripts.length})
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {!generating ? (
+          <div className="bg-white rounded-lg border border-gray-200 p-8">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">
+              Ready to Generate Scripts
             </h2>
-            {/* 6. Add a "Select All" button */}
+            <p className="text-gray-600 mb-6">
+              You've selected {selectedTopics.length} topic{selectedTopics.length !== 1 ? 's' : ''}. 
+              Click the button below to generate scripts for each topic.
+            </p>
+
+            {/* Selected Topics Preview */}
+            <div className="mb-6">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Selected Topics:</h3>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {selectedTopics.map((topic, index) => (
+                  <div key={topic.id} className="p-3 bg-gray-50 rounded border border-gray-200">
+                    <p className="text-sm font-medium text-gray-900">
+                      {index + 1}. {topic.title}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <button
-              onClick={handleSelectAll}
-              className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+              onClick={handleGenerateScripts}
+              className="w-full px-6 py-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold text-lg"
             >
-              {selectedScriptIds.length === scripts.length ? 'Deselect All' : 'Select All'}
+              Generate {selectedTopics.length} Script{selectedTopics.length !== 1 ? 's' : ''}
             </button>
           </div>
+        ) : (
+          <div className="bg-white rounded-lg border border-gray-200 p-8">
+            <div className="text-center">
+              <div className="text-6xl mb-4">✍️</div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                Generating Scripts...
+              </h2>
+              <p className="text-gray-600 mb-6">
+                Please wait while we create your scripts. This may take a minute.
+              </p>
 
-          {scripts.length === 0 ? (
-            <div>{/* ... (your empty state) ... */}</div>
-          ) : (
-            <div className="space-y-4">
-              {scripts.map((script: any, index: number) => {
-                const scriptId = script.topicId // Use a unique ID
-                return (
-                  <div
-                    key={index}
-                    className={`p-6 border rounded-lg transition-all flex gap-4 ${
-                      selectedScriptIds.includes(scriptId)
-                        ? 'border-blue-500 bg-blue-50 shadow-md'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    {/* 7. Add the checkbox */}
-                    <input
-                      type="checkbox"
-                      checked={selectedScriptIds.includes(scriptId)}
-                      onChange={() => handleSelectScript(scriptId)}
-                      className="mt-1 rounded"
-                    />
-                    <Link
-                      href={`/dashboard/project/${params.id}/scripts/${index}`}
-                      className="block flex-1"
-                    >
-                      {/* ... (your existing script card content) ... */}
-                      <h3 className="text-lg font-semibold text-gray-900">{script.topicTitle}</h3>
-                      {/* ... */}
-                    </Link>
-                  </div>
-                )
-              })}
+              {/* Progress Bar */}
+              <div className="w-full bg-gray-200 rounded-full h-4 mb-4">
+                <div
+                  className="bg-blue-600 h-4 rounded-full transition-all duration-300"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <p className="text-sm text-gray-600">
+                {progress}% complete
+              </p>
+
+              {error && (
+                <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-sm text-yellow-800">{error}</p>
+                </div>
+              )}
             </div>
-          )}
-          {/* ... (rest of your component) ... */}
-        </div>
+          </div>
+        )}
       </main>
     </div>
   )
