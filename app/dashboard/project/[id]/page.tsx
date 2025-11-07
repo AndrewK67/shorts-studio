@@ -57,7 +57,7 @@ export default function ProjectDetailPage() {
     }
 
     // Save selected topic IDs to localStorage for the scripts page
-    localStorage.setItem('selectedTopicIds', JSON.stringify([...selectedTopics]))
+    localStorage.setItem('selectedTopicIds', JSON.stringify(Array.from(selectedTopics)))
     router.push(`/dashboard/project/${project.id}/scripts`)
   }
 
