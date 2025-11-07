@@ -8,7 +8,8 @@ const anthropic = new Anthropic({
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { topics, profile } = body
+    // 1. RECEIVE THE PRODUCTION MODE
+    const { topics, profile, productionMode } = body
 
     if (!topics || !profile) {
       return NextResponse.json(
@@ -21,7 +22,70 @@ export async function POST(request: NextRequest) {
 
     // Generate scripts for each topic
     for (const topic of topics) {
-     const prompt = `You are an expert YouTube Shorts scriptwriter. Write a compelling 45-60 second script for this topic.
+      // 2. DYNAMICALLY BUILD THE VISUAL CUES PROMPT
+      let visualCuesPrompt = ''
+
+      if (productionMode === 'ai-video') {
+        visualCuesPrompt = `
+VISUAL CUES (✨ AI Video Mode):
+Generate a list of AI video prompts to match the script.
+The output MUST be in this JSON format:
+"visualCues": {
+  "aiPrompts": [
+    {
+      "section": "hook",
+      "duration": "0-3s",
+      "prompt": "An extremely close-up shot of a single tea leaf unfurling in hot water, hyper-realistic",
+      "style": "cinematic, dramatic lighting, 8k"
+    },
+    {
+      "section": "setup",
+      "duration": "3-10s",
+      "prompt": "a fast-paced montage of people looking sleepy at their desks, then drinking coffee, then looking jittery",
+      "style": "fast cuts, energetic, motion blur"
+    },
+    //... add more for value and cta
+  ],
+  "textOverlays": ["Key text to show on screen"],
+  "musicMood": "calm, lo-fi, or energetic"
+}
+`
+      } else if (productionMode === 'ai-voice') {
+        visualCuesPrompt = `
+VISUAL CUES (🤖 AI Voice Mode):
+Generate visual ideas for stock footage.
+The output MUST be in this JSON format:
+"visualCues": {
+  "stockFootageKeywords": ["tea", "cozy home", "library", "autumn leaves"],
+  "sceneDescriptions": [
+    "Close-up of steam rising from a mug",
+    "A person reading a book by a window"
+  ],
+  "textOverlays": ["Why You're Drinking Tea Wrong", "The 5-second hack"],
+  "musicMood": "calm, lo-fi, thoughtful"
+}
+`
+      } else {
+        // This is your original "Traditional" prompt
+        visualCuesPrompt = `
+VISUAL CUES (🎥 Traditional Mode):
+- Gestures: (hand movements, expressions)
+- B-roll suggestions: (what to show on screen)
+- Framing: (close-up, medium shot, etc.)
+- Lighting: (bright, soft, dramatic, etc.)
+
+The output MUST be in this JSON format:
+"visualCues": {
+  "gestures": ["open hands when welcoming", "pointing when making key point"],
+  "bRoll": ["image 1", "image 2"],
+  "framing": "medium close-up",
+  "lighting": "soft and warm"
+}
+`
+      }
+
+      // 3. ASSEMBLE THE FINAL PROMPT
+      const prompt = `You are an expert YouTube Shorts scriptwriter. Write a compelling 45-60 second script for this topic.
 
 CREATOR PROFILE:
 - Name: ${profile.name}
@@ -37,13 +101,17 @@ CRITICAL REGIONAL CONTEXT:
 - Currency: ${profile.country === 'United Kingdom' ? 'GBP (£)' : profile.country === 'United States' ? 'USD ($)' : 'local currency'}
 
 IMPORTANT TERMINOLOGY (for UK creators):
-${profile.country === 'United Kingdom' ? `
+${
+  profile.country === 'United Kingdom'
+    ? `
 - "Holiday" means VACATION/TRIP (going away), NOT Christmas/seasonal holidays
 - Use British spellings: colour, favourite, centre, etc.
 - Use British terms: shop (not store), flat (not apartment), lorry (not truck)
 - Prices in GBP with £ symbol
 - Avoid Americanisms
-` : ''}
+`
+    : ''
+}
 
 TOPIC DETAILS:
 - Title: ${topic.title}
@@ -63,13 +131,9 @@ DELIVERY NOTES TO INCLUDE:
 - Key pauses: (where to pause for effect)
 - Emphasis: (words to emphasize)
 
-VISUAL CUES TO INCLUDE:
-- Gestures: (hand movements, expressions)
-- B-roll suggestions: (what to show on screen)
-- Framing: (close-up, medium shot, etc.)
-- Lighting: (bright, soft, dramatic, etc.)
+${visualCuesPrompt}
 
-Return ONLY valid JSON with this structure:
+Return ONLY valid JSON with this structure (no markdown, no explanation):
 {
   "hook": "First 3 seconds opening line",
   "setup": "Problem or context setup",
@@ -84,10 +148,7 @@ Return ONLY valid JSON with this structure:
     "emphasis": ["key phrase 1", "key phrase 2"]
   },
   "visualCues": {
-    "gestures": ["open hands when welcoming", "pointing when making key point"],
-    "bRoll": ["image 1", "image 2"],
-    "framing": "medium close-up",
-    "lighting": "soft and warm"
+    // The dynamic visual cues JSON will go here
   },
   "factCheckNotes": {
     "claims": ["any factual claims to verify"],
@@ -96,19 +157,19 @@ Return ONLY valid JSON with this structure:
 }`
 
       const message = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
+        // 4. FIX THE MODEL NAME
+        model: 'claude-3-5-sonnet-20240620',
         max_tokens: 4000,
         messages: [
           {
             role: 'user',
-            content: prompt
-          }
-        ]
+            content: prompt,
+          },
+        ],
       })
 
-      const responseText = message.content[0].type === 'text' 
-        ? message.content[0].text 
-        : ''
+      const responseText =
+        message.content[0].type === 'text' ? message.content[0].text : ''
 
       let jsonText = responseText
       const jsonMatch = responseText.match(/```json\n?([\s\S]*?)\n?```/)
@@ -117,29 +178,32 @@ Return ONLY valid JSON with this structure:
       }
 
       const scriptData = JSON.parse(jsonText)
-      
+
       scripts.push({
         topicId: topic.id,
         topicTitle: topic.title,
         ...scriptData,
-        verificationStatus: scriptData.factCheckNotes.requiresVerification ? 'needs_review' : 'verified',
+        // This is a new field to store what mode was used
+        productionMode: productionMode || 'traditional',
+        verificationStatus: scriptData.factCheckNotes.requiresVerification
+          ? 'needs_review'
+          : 'verified',
         version: 1,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       })
     }
 
     return NextResponse.json({
       scripts,
-      message: `Generated ${scripts.length} scripts successfully`
+      message: `Generated ${scripts.length} scripts successfully`,
     })
-
   } catch (error) {
     console.error('Error generating scripts:', error)
-    
+
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to generate scripts',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     )
