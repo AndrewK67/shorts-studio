@@ -116,6 +116,71 @@ export default function ProjectDetailPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Scripts Section */}
+        {scriptsCount > 0 && (
+          <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Scripts</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  {scriptsCount} script{scriptsCount !== 1 ? 's' : ''} generated
+                </p>
+              </div>
+              <Link
+                href={`/dashboard/project/${project.id}/scripts`}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+              >
+                View All Scripts
+              </Link>
+            </div>
+
+            {/* Recent Scripts Preview */}
+            <div className="space-y-3">
+              {project.scripts.slice(0, 3).map((script: any, index: number) => (
+                <Link
+                  key={script.id || index}
+                  href={`/dashboard/project/${project.id}/scripts/${index}`}
+                  className="block p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900 mb-1">
+                        {script.topicTitle || `Script #${index + 1}`}
+                      </h3>
+                      <p className="text-sm text-gray-600 italic truncate">
+                        "{script.hook || 'No hook'}"
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 ml-4">
+                      <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded">
+                        {script.readingTime || 60}s
+                      </span>
+                      <span className={`text-xs px-2 py-1 rounded ${
+                        script.verificationStatus === 'verified'
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-yellow-100 text-yellow-700'
+                      }`}>
+                        {script.verificationStatus === 'verified' ? 'Verified' : 'Review'}
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+
+              {scriptsCount > 3 && (
+                <div className="text-center pt-2">
+                  <Link
+                    href={`/dashboard/project/${project.id}/scripts`}
+                    className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    View {scriptsCount - 3} more script{scriptsCount - 3 !== 1 ? 's' : ''} →
+                  </Link>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Selection Actions Bar */}
         {topicsCount > 0 && (
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">

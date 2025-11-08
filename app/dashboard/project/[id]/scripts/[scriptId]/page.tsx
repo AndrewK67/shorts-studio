@@ -1,59 +1,255 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import Navigation from '../../../../../../components/Navigation'
 
 export default function ScriptDetailPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [project, setProject] = useState<any>(null)
   const [script, setScript] = useState<any>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editedContent, setEditedContent] = useState('')
+  const [editedHook, setEditedHook] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [factChecked, setFactChecked] = useState(false)
 
   useEffect(() => {
+    loadScript()
+    // Check if edit mode is requested via query param
+    if (searchParams.get('edit') === 'true') {
+      setIsEditing(true)
+    }
+  }, [params.id, params.scriptId, searchParams])
+
+  const loadScript = () => {
     const projects = JSON.parse(localStorage.getItem('projects') || '[]')
     const currentProject = projects.find((p: any) => p.id === params.id)
-    
+
     if (currentProject) {
       setProject(currentProject)
       const scriptIndex = parseInt(params.scriptId as string)
       if (currentProject.scripts && currentProject.scripts[scriptIndex]) {
-        setScript(currentProject.scripts[scriptIndex])
+        const currentScript = currentProject.scripts[scriptIndex]
+        setScript(currentScript)
+        setEditedContent(currentScript.content || currentScript.fullScript || '')
+        setEditedHook(currentScript.hook || '')
+        setFactChecked(currentScript.verificationStatus === 'verified')
       }
-    } else {
-      router.push('/dashboard')
     }
-  }, [params.id, params.scriptId, router])
-
-  if (!project || !script) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>
   }
 
-  const productionMode = script.productionMode || project.productionMode || 'traditional'
-  const isAIVoice = productionMode === 'ai-voice'
-  const isAIVideo = productionMode === 'ai-video'
-  const isTraditional = productionMode === 'traditional'
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const projects = JSON.parse(localStorage.getItem('projects') || '[]')
+      const projectIndex = projects.findIndex((p: any) => p.id === params.id)
+
+      if (projectIndex !== -1) {
+        const scriptIndex = parseInt(params.scriptId as string)
+
+        // Update the script
+        projects[projectIndex].scripts[scriptIndex] = {
+          ...projects[projectIndex].scripts[scriptIndex],
+          content: editedContent,
+          fullScript: editedContent,
+          hook: editedHook,
+          verificationStatus: factChecked ? 'verified' : 'needs_review',
+          updatedAt: new Date().toISOString(),
+        }
+
+        localStorage.setItem('projects', JSON.stringify(projects))
+        setScript(projects[projectIndex].scripts[scriptIndex])
+        setIsEditing(false)
+        alert('Script saved successfully!')
+      }
+    } catch (err) {
+      console.error('Error saving script:', err)
+      alert('Failed to save script')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = () => {
+    if (!confirm('Are you sure you want to delete this script? This action cannot be undone.')) {
+      return
+    }
+
+    try {
+      const projects = JSON.parse(localStorage.getItem('projects') || '[]')
+      const projectIndex = projects.findIndex((p: any) => p.id === params.id)
+
+      if (projectIndex !== -1) {
+        const scriptIndex = parseInt(params.scriptId as string)
+        projects[projectIndex].scripts.splice(scriptIndex, 1)
+        localStorage.setItem('projects', JSON.stringify(projects))
+        router.push(`/dashboard/project/${params.id}/scripts`)
+      }
+    } catch (err) {
+      console.error('Error deleting script:', err)
+      alert('Failed to delete script')
+    }
+  }
+
+  const handleExport = (format: 'txt' | 'pdf' = 'txt') => {
+    if (!script) return
+
+    const exportText = `
+SCRIPT: ${script.topicTitle || 'Untitled'}
+Reading Time: ${script.readingTime || 'N/A'} seconds
+Created: ${script.createdAt ? new Date(script.createdAt).toLocaleDateString() : 'N/A'}
+Status: ${script.verificationStatus === 'verified' ? 'Verified' : 'Needs Review'}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+HOOK:
+${script.hook || 'N/A'}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+FULL SCRIPT:
+${script.content || script.fullScript || 'No content available'}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DELIVERY NOTES:
+${formatDeliveryNotes(script.deliveryNotes)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+VISUAL CUES:
+${formatVisualCues(script.visualCues)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Generated by Shorts Studio
+`.trim()
+
+    const blob = new Blob([exportText], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `script-${script.topicTitle || script.id || Date.now()}.txt`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  const formatDeliveryNotes = (notes: any) => {
+    if (!notes) return 'N/A'
+    if (typeof notes === 'string') return notes
+    return Object.entries(notes)
+      .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+      .join('\n')
+  }
+
+  const formatVisualCues = (cues: any) => {
+    if (!cues) return 'N/A'
+    if (Array.isArray(cues)) return cues.join('\n')
+    if (typeof cues === 'object') {
+      return JSON.stringify(cues, null, 2)
+    }
+    return String(cues)
+  }
+
+  const parseDeliveryNote = (text: string) => {
+    // Highlight delivery notes like [PAUSE], [EMPHASIZE], [SMILE], etc.
+    const parts = text.split(/(\[.*?\])/g)
+    return parts.map((part, index) => {
+      if (part.match(/^\[.*\]$/)) {
+        return (
+          <span key={index} className="bg-yellow-200 text-yellow-900 px-1 rounded font-semibold">
+            {part}
+          </span>
+        )
+      }
+      return <span key={index}>{part}</span>
+    })
+  }
+
+  if (!project || !script) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navigation />
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const scriptTitle = script.topicTitle || script.hook?.substring(0, 50) || `Script #${params.scriptId}`
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <Navigation />
+
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <Link href={`/dashboard/project/${params.id}/scripts`} className="text-gray-600 hover:text-gray-900 inline-block mb-4">
+          <Link
+            href={`/dashboard/project/${params.id}/scripts`}
+            className="text-sm text-blue-600 hover:text-blue-700 inline-block mb-4"
+          >
             ← Back to Scripts
           </Link>
-          <div className="flex justify-between items-start">
+          <div className="flex justify-between items-start flex-wrap gap-4">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">{script.topicTitle}</h1>
-              <p className="text-sm text-gray-600">Reading time: {script.readingTime} seconds</p>
+              <h1 className="text-2xl font-bold text-gray-900">{scriptTitle}</h1>
+              <p className="text-sm text-gray-600 mt-1">
+                Reading time: {script.readingTime || 60} seconds
+              </p>
             </div>
-            <div className="text-right">
-              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                isAIVideo ? 'bg-purple-100 text-purple-800' :
-                isAIVoice ? 'bg-blue-100 text-blue-800' :
-                'bg-green-100 text-green-800'
-              }`}>
-                {isAIVideo ? '✨ AI Video' : isAIVoice ? '🤖 AI Voice' : '🎥 Traditional'}
-              </span>
+            <div className="flex items-center gap-3">
+              {!isEditing ? (
+                <>
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                  >
+                    Edit Script
+                  </button>
+                  <button
+                    onClick={() => handleExport()}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-semibold"
+                  >
+                    Export
+                  </button>
+                  <button
+                    onClick={handleDelete}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-semibold"
+                  >
+                    Delete
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold disabled:opacity-50"
+                  >
+                    {saving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsEditing(false)
+                      setEditedContent(script.content || script.fullScript || '')
+                      setEditedHook(script.hook || '')
+                    }}
+                    className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-semibold"
+                  >
+                    Cancel
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -61,221 +257,223 @@ export default function ScriptDetailPage() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Script */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">Script</h2>
-              
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">HOOK (0-3s)</h3>
-                  <p className="text-gray-900 bg-yellow-50 p-4 rounded-lg">{script.hook}</p>
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">SETUP (3-10s)</h3>
-                  <p className="text-gray-900 bg-blue-50 p-4 rounded-lg">{script.setup}</p>
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">VALUE (10-50s)</h3>
-                  <p className="text-gray-900 bg-green-50 p-4 rounded-lg whitespace-pre-line">{script.value}</p>
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">CTA (50-60s)</h3>
-                  <p className="text-gray-900 bg-purple-50 p-4 rounded-lg">{script.cta}</p>
-                </div>
-              </div>
+          {/* Main Script Content */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Hook Section */}
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Hook (0-3s)</h2>
+              {isEditing ? (
+                <textarea
+                  value={editedHook}
+                  onChange={(e) => setEditedHook(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                  rows={2}
+                  placeholder="Enter the hook..."
+                />
+              ) : (
+                <p className="text-gray-900 bg-yellow-50 p-4 rounded-lg italic">
+                  "{script.hook}"
+                </p>
+              )}
             </div>
 
             {/* Full Script */}
             <div className="bg-white rounded-xl shadow-sm p-6">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Full Script</h2>
-              <div className="bg-gray-50 p-6 rounded-lg font-mono text-sm whitespace-pre-line">
-                {script.fullScript}
+              {isEditing ? (
+                <div>
+                  <textarea
+                    value={editedContent}
+                    onChange={(e) => setEditedContent(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                    rows={20}
+                    placeholder="Enter the full script with delivery notes like [PAUSE], [EMPHASIZE], [SMILE], etc."
+                  />
+                  <p className="text-xs text-gray-500 mt-2">
+                    Tip: Use [PAUSE], [EMPHASIZE], [SMILE], [SHOW: example], [POINT], etc. for delivery notes
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-gray-50 p-6 rounded-lg font-mono text-sm whitespace-pre-line leading-relaxed">
+                  {parseDeliveryNote(script.content || script.fullScript || 'No content')}
+                </div>
+              )}
+            </div>
+
+            {/* Metadata */}
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Metadata</h2>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="font-medium text-gray-700">Created:</p>
+                  <p className="text-gray-600">
+                    {script.createdAt
+                      ? new Date(script.createdAt).toLocaleDateString()
+                      : 'N/A'}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium text-gray-700">Last Updated:</p>
+                  <p className="text-gray-600">
+                    {script.updatedAt
+                      ? new Date(script.updatedAt).toLocaleDateString()
+                      : 'N/A'}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium text-gray-700">Version:</p>
+                  <p className="text-gray-600">{script.version || 1}</p>
+                </div>
+                <div>
+                  <p className="font-medium text-gray-700">Reading Time:</p>
+                  <p className="text-gray-600">{script.readingTime || 60}s</p>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Sidebar - Notes */}
+          {/* Sidebar */}
           <div className="space-y-6">
-            {/* Delivery Notes */}
-            <div className="bg-white rounded-xl shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">📝 Delivery Notes</h2>
-              <div className="space-y-3 text-sm">
-                <div>
-                  <p className="font-medium text-gray-700">Pacing:</p>
-                  <p className="text-gray-600">{script.deliveryNotes.pacing}</p>
-                </div>
-                <div>
-                  <p className="font-medium text-gray-700">Energy Level:</p>
-                  <p className="text-gray-600">{script.deliveryNotes.energy}/10</p>
-                </div>
-                <div>
-                  <p className="font-medium text-gray-700">Key Pauses:</p>
-                  <ul className="text-gray-600 list-disc list-inside">
-                    {script.deliveryNotes.pauses.map((pause: string, i: number) => (
-                      <li key={i}>{pause}</li>
-                    ))}
-                  </ul>
-                </div>
-                <div>
-                  <p className="font-medium text-gray-700">Emphasis:</p>
-                  <ul className="text-gray-600 list-disc list-inside">
-                    {script.deliveryNotes.emphasis.map((word: string, i: number) => (
-                      <li key={i}>{word}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
-
-            {/* Visual Cues - Traditional Mode */}
-            {isTraditional && script.visualCues && (
-              <div className="bg-white rounded-xl shadow-sm p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">🎬 Visual Cues (On Camera)</h2>
-                <div className="space-y-3 text-sm">
-                  <div>
-                    <p className="font-medium text-gray-700">Framing:</p>
-                    <p className="text-gray-600">{script.visualCues.framing}</p>
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-700">Lighting:</p>
-                    <p className="text-gray-600">{script.visualCues.lighting}</p>
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-700">Gestures:</p>
-                    <ul className="text-gray-600 list-disc list-inside">
-                      {script.visualCues.gestures?.map((gesture: string, i: number) => (
-                        <li key={i}>{gesture}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-700">B-Roll:</p>
-                    <ul className="text-gray-600 list-disc list-inside">
-                      {script.visualCues.bRoll?.map((broll: string, i: number) => (
-                        <li key={i}>{broll}</li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Visual Production - AI Voice Mode */}
-            {isAIVoice && script.visualCues && (
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
-                <h2 className="text-lg font-semibold text-blue-900 mb-4">🎨 Stock Footage Guide</h2>
-                <div className="space-y-3 text-sm">
-                  <div>
-                    <p className="font-medium text-blue-800">Search Keywords:</p>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {script.visualCues.stockFootageKeywords?.map((keyword: string, i: number) => (
-                        <span key={i} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
-                          {keyword}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  {script.visualCues.sceneDescriptions && (
-                    <div>
-                      <p className="font-medium text-blue-800">Scene Descriptions:</p>
-                      <ul className="text-blue-700 list-disc list-inside mt-2">
-                        {script.visualCues.sceneDescriptions.map((scene: string, i: number) => (
-                          <li key={i}>{scene}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {script.visualCues.textOverlays && (
-                    <div>
-                      <p className="font-medium text-blue-800">Text Overlays:</p>
-                      <ul className="text-blue-700 list-disc list-inside mt-2">
-                        {script.visualCues.textOverlays.map((text: string, i: number) => (
-                          <li key={i}>{text}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {script.visualCues.musicMood && (
-                    <div>
-                      <p className="font-medium text-blue-800">Music Mood:</p>
-                      <p className="text-blue-700">{script.visualCues.musicMood}</p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-4 pt-4 border-t border-blue-200">
-                  <p className="text-xs text-blue-700">
-                    💡 <strong>Stock Sources:</strong> Pexels, Pixabay, Storyblocks
+            {/* Fact-Check Panel */}
+            <div className={`rounded-xl shadow-sm p-6 border-2 ${
+              factChecked
+                ? 'bg-green-50 border-green-300'
+                : 'bg-yellow-50 border-yellow-300'
+            }`}>
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                {factChecked ? '✅' : '⚠️'} Fact-Check Status
+              </h2>
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={factChecked}
+                  onChange={(e) => setFactChecked(e.target.checked)}
+                  className="mt-1 h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <div className="text-sm">
+                  <p className="font-medium text-gray-900">
+                    Mark as fact-checked and verified
+                  </p>
+                  <p className="text-gray-600 mt-1">
+                    Check this box once you've verified all claims and information in the script
                   </p>
                 </div>
-              </div>
-            )}
+              </label>
 
-            {/* AI Video Generation - AI Video Mode */}
-            {isAIVideo && script.visualCues && script.visualCues.aiPrompts && (
-              <div className="bg-purple-50 border border-purple-200 rounded-xl p-6">
-                <h2 className="text-lg font-semibold text-purple-900 mb-4">✨ AI Video Generation Prompts</h2>
-                <div className="space-y-4">
-                  {script.visualCues.aiPrompts.map((aiPrompt: any, i: number) => (
-                    <div key={i} className="bg-white rounded-lg p-4 border border-purple-200">
-                      <div className="flex justify-between items-start mb-2">
-                        <p className="font-semibold text-purple-900 capitalize">{aiPrompt.section}</p>
-                        <span className="text-xs text-purple-600">{aiPrompt.duration}</span>
-                      </div>
-                      <p className="text-sm text-gray-700 mb-2">{aiPrompt.prompt}</p>
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {aiPrompt.style?.split(',').map((style: string, j: number) => (
-                          <span key={j} className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">
-                            {style.trim()}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-4 pt-4 border-t border-purple-200">
-                  <p className="text-xs text-purple-700 mb-2">
-                    💡 <strong>Recommended Tools:</strong>
-                  </p>
-                  <ul className="text-xs text-purple-600 space-y-1">
-                    <li>• Runway Gen-3 (cinematic)</li>
-                    <li>• Pika 2.0 (character consistency)</li>
-                    <li>• HeyGen (talking heads)</li>
-                  </ul>
-                </div>
-
-                {script.visualCues.textOverlays && (
-                  <div className="mt-4 pt-4 border-t border-purple-200">
-                    <p className="font-medium text-purple-800 text-sm mb-2">Text Overlays:</p>
-                    <ul className="text-purple-700 list-disc list-inside text-sm">
-                      {script.visualCues.textOverlays.map((text: string, i: number) => (
-                        <li key={i}>{text}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Fact-Check */}
-            {script.factCheckNotes.claims.length > 0 && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6">
-                <h2 className="text-lg font-semibold text-yellow-900 mb-4">⚠️ Fact-Check</h2>
-                <div className="space-y-2 text-sm">
-                  <p className="font-medium text-yellow-800">Claims to Verify:</p>
-                  <ul className="text-yellow-700 list-disc list-inside">
+              {script.factCheckNotes?.claims && script.factCheckNotes.claims.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-yellow-200">
+                  <p className="font-medium text-yellow-900 text-sm mb-2">Claims to Verify:</p>
+                  <ul className="text-yellow-800 list-disc list-inside text-sm space-y-1">
                     {script.factCheckNotes.claims.map((claim: string, i: number) => (
                       <li key={i}>{claim}</li>
                     ))}
                   </ul>
+                </div>
+              )}
+            </div>
+
+            {/* Delivery Notes */}
+            {script.deliveryNotes && (
+              <div className="bg-white rounded-xl shadow-sm p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Delivery Notes</h2>
+                <div className="space-y-3 text-sm">
+                  {typeof script.deliveryNotes === 'object' ? (
+                    <>
+                      {script.deliveryNotes.pacing && (
+                        <div>
+                          <p className="font-medium text-gray-700">Pacing:</p>
+                          <p className="text-gray-600">{script.deliveryNotes.pacing}</p>
+                        </div>
+                      )}
+                      {script.deliveryNotes.energy && (
+                        <div>
+                          <p className="font-medium text-gray-700">Energy Level:</p>
+                          <p className="text-gray-600">{script.deliveryNotes.energy}</p>
+                        </div>
+                      )}
+                      {script.deliveryNotes.tone && (
+                        <div>
+                          <p className="font-medium text-gray-700">Tone:</p>
+                          <p className="text-gray-600">{script.deliveryNotes.tone}</p>
+                        </div>
+                      )}
+                      {script.deliveryNotes.pauses && Array.isArray(script.deliveryNotes.pauses) && (
+                        <div>
+                          <p className="font-medium text-gray-700">Key Pauses:</p>
+                          <ul className="text-gray-600 list-disc list-inside">
+                            {script.deliveryNotes.pauses.map((pause: string, i: number) => (
+                              <li key={i}>{pause}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {script.deliveryNotes.emphasis && Array.isArray(script.deliveryNotes.emphasis) && (
+                        <div>
+                          <p className="font-medium text-gray-700">Emphasis:</p>
+                          <ul className="text-gray-600 list-disc list-inside">
+                            {script.deliveryNotes.emphasis.map((word: string, i: number) => (
+                              <li key={i}>{word}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-gray-600">{script.deliveryNotes}</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Visual Cues / B-Roll Ideas */}
+            {script.visualCues && (
+              <div className="bg-white rounded-xl shadow-sm p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Visual Cues / B-Roll</h2>
+                <div className="space-y-3 text-sm">
+                  {Array.isArray(script.visualCues) ? (
+                    <ul className="text-gray-600 list-disc list-inside space-y-1">
+                      {script.visualCues.map((cue: string, i: number) => (
+                        <li key={i}>{cue}</li>
+                      ))}
+                    </ul>
+                  ) : typeof script.visualCues === 'object' ? (
+                    <>
+                      {script.visualCues.bRoll && Array.isArray(script.visualCues.bRoll) && (
+                        <div>
+                          <p className="font-medium text-gray-700">B-Roll Suggestions:</p>
+                          <ul className="text-gray-600 list-disc list-inside mt-1">
+                            {script.visualCues.bRoll.map((item: string, i: number) => (
+                              <li key={i}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {script.visualCues.textOverlays && Array.isArray(script.visualCues.textOverlays) && (
+                        <div>
+                          <p className="font-medium text-gray-700">Text Overlays:</p>
+                          <ul className="text-gray-600 list-disc list-inside mt-1">
+                            {script.visualCues.textOverlays.map((text: string, i: number) => (
+                              <li key={i}>{text}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {script.visualCues.stockFootageKeywords && (
+                        <div>
+                          <p className="font-medium text-gray-700">Stock Footage Keywords:</p>
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {script.visualCues.stockFootageKeywords.map((keyword: string, i: number) => (
+                              <span key={i} className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">
+                                {keyword}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-gray-600">{String(script.visualCues)}</p>
+                  )}
                 </div>
               </div>
             )}
