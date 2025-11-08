@@ -58,6 +58,8 @@ export default function ScriptsPage() {
         const topic = selectedTopics[i]
         setProgress(Math.round(((i + 1) / selectedTopics.length) * 100))
         
+        console.log(`Generating script ${i + 1}/${selectedTopics.length} for: ${topic.title}`)
+        
         try {
           const response = await fetch('/api/scripts/generate', {
             method: 'POST',
@@ -72,19 +74,27 @@ export default function ScriptsPage() {
           })
 
           if (!response.ok) {
-            throw new Error(`Failed to generate script for: ${topic.title}`)
+            const errorData = await response.json()
+            console.error('Script generation error:', errorData)
+            throw new Error(`Failed to generate script: ${errorData.details || 'Unknown error'}`)
           }
 
           const data = await response.json()
-          generatedScripts.push(data.script)
+          console.log('Script generated:', data.script)
+          
+          if (data.success && data.script) {
+            generatedScripts.push(data.script)
+          }
         } catch (err) {
           console.error(`Error generating script ${i + 1}:`, err)
           // Continue with next script even if one fails
         }
       }
 
+      console.log(`Generated ${generatedScripts.length} scripts total`)
+
       if (generatedScripts.length === 0) {
-        throw new Error('Failed to generate any scripts')
+        throw new Error('Failed to generate any scripts. Check console for details.')
       }
 
       // Save scripts to project
@@ -93,21 +103,40 @@ export default function ScriptsPage() {
         const projects = JSON.parse(savedProjects)
         const projectIndex = projects.findIndex((p: any) => p.id === params.id)
         
+        console.log('Found project at index:', projectIndex)
+        
         if (projectIndex !== -1) {
+          // Initialize scripts array if it doesn't exist
+          if (!projects[projectIndex].scripts) {
+            projects[projectIndex].scripts = []
+          }
+          
+          // Add new scripts
           projects[projectIndex].scripts = [
-            ...(projects[projectIndex].scripts || []),
+            ...projects[projectIndex].scripts,
             ...generatedScripts
           ]
+          
+          console.log('Saving', projects[projectIndex].scripts.length, 'scripts to project')
           localStorage.setItem('projects', JSON.stringify(projects))
+          console.log('✅ Scripts saved successfully')
+        } else {
+          console.error('❌ Project not found in localStorage')
+          throw new Error('Project not found')
         }
+      } else {
+        console.error('❌ No projects found in localStorage')
+        throw new Error('No projects found')
       }
 
       // Clear selected topics
       localStorage.removeItem('selectedTopicIds')
 
-      // Redirect to project page
-      alert(`Successfully generated ${generatedScripts.length} scripts!`)
-      router.push(`/dashboard/project/${project.id}`)
+      // Show success and redirect
+      alert(`✅ Successfully generated ${generatedScripts.length} script${generatedScripts.length !== 1 ? 's' : ''}!`)
+      
+      // Force reload the page to show updated data
+      window.location.href = `/dashboard/project/${project.id}`
 
     } catch (err) {
       console.error('Error generating scripts:', err)
