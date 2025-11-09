@@ -4,29 +4,51 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Navigation from '../../../../components/Navigation'
+import { getProjectById } from '@/lib/db/projects'
+import { getTopicsByProjectId } from '@/lib/db/topics'
+import { getScriptsByProjectId } from '@/lib/db/scripts'
 
 export default function ProjectDetailPage() {
   const params = useParams()
   const router = useRouter()
   const [project, setProject] = useState<any>(null)
+  const [topics, setTopics] = useState<any[]>([])
+  const [scripts, setScripts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedTopics, setSelectedTopics] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    try {
-      const savedProjects = localStorage.getItem('projects')
-      if (savedProjects) {
-        const projects = JSON.parse(savedProjects)
-        const currentProject = projects.find((p: any) => p.id === params.id)
-        if (currentProject) {
-          setProject(currentProject)
+    async function loadProjectData() {
+      try {
+        const projectId = params.id as string
+
+        // Load project from database
+        const projectData = await getProjectById(projectId)
+        if (!projectData) {
+          console.log('Project not found')
+          setLoading(false)
+          return
         }
+
+        setProject(projectData)
+
+        // Load topics for this project
+        const topicsData = await getTopicsByProjectId(projectId)
+        setTopics(topicsData)
+
+        // Load scripts for this project
+        const scriptsData = await getScriptsByProjectId(projectId)
+        setScripts(scriptsData)
+
+        console.log(`✅ Loaded project with ${topicsData.length} topics and ${scriptsData.length} scripts`)
+      } catch (err) {
+        console.error('Error loading project:', err)
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
-    } catch (err) {
-      console.error('Error loading project:', err)
-      setLoading(false)
     }
+
+    loadProjectData()
   }, [params.id])
 
   const toggleTopic = (topicId: string) => {
@@ -40,8 +62,8 @@ export default function ProjectDetailPage() {
   }
 
   const selectAll = () => {
-    if (project?.topics) {
-      const allIds = new Set<string>(project.topics.map((t: any) => t.id as string))
+    if (topics.length > 0) {
+      const allIds = new Set<string>(topics.map((t: any) => t.id as string))
       setSelectedTopics(allIds)
     }
   }
@@ -56,9 +78,9 @@ export default function ProjectDetailPage() {
       return
     }
 
-    // Save selected topic IDs to localStorage for the scripts page
-    localStorage.setItem('selectedTopicIds', JSON.stringify(Array.from(selectedTopics)))
-    router.push(`/dashboard/project/${project.id}/scripts`)
+    // Pass selected topic IDs via URL query params instead of localStorage
+    const selectedIds = Array.from(selectedTopics).join(',')
+    router.push(`/dashboard/project/${project.id}/scripts?topics=${selectedIds}`)
   }
 
   if (loading) {
@@ -91,14 +113,14 @@ export default function ProjectDetailPage() {
     )
   }
 
-  const topicsCount = project.topics?.length || 0
-  const scriptsCount = project.scripts?.length || 0
+  const topicsCount = topics.length
+  const scriptsCount = scripts.length
   const selectedCount = selectedTopics.size
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
-      
+
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between">
@@ -106,7 +128,7 @@ export default function ProjectDetailPage() {
               <Link href="/dashboard" className="text-sm text-blue-600 hover:text-blue-700 mb-2 inline-block">
                 ← Back to Dashboard
               </Link>
-              <h1 className="text-3xl font-bold text-gray-900">{project.name || 'Untitled Project'}</h1>
+              <h1 className="text-3xl font-bold text-gray-900">{project?.name || 'Untitled Project'}</h1>
               <p className="text-sm text-gray-600 mt-1">
                 {topicsCount} topics • {scriptsCount} scripts
               </p>
@@ -136,31 +158,31 @@ export default function ProjectDetailPage() {
 
             {/* Recent Scripts Preview */}
             <div className="space-y-3">
-              {project.scripts.slice(0, 3).map((script: any, index: number) => (
+              {scripts.slice(0, 3).map((script: any, index: number) => (
                 <Link
-                  key={script.id || index}
-                  href={`/dashboard/project/${project.id}/scripts/${index}`}
+                  key={script.id}
+                  href={`/dashboard/project/${project.id}/scripts/${script.id}`}
                   className="block p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-gray-900 mb-1">
-                        {script.topicTitle || `Script #${index + 1}`}
+                        {script.hook || `Script #${index + 1}`}
                       </h3>
-                      <p className="text-sm text-gray-600 italic truncate">
-                        "{script.hook || 'No hook'}"
+                      <p className="text-sm text-gray-600 truncate">
+                        {script.content?.substring(0, 100)}...
                       </p>
                     </div>
                     <div className="flex flex-col items-end gap-1 ml-4">
                       <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded">
-                        {script.readingTime || 60}s
+                        {script.reading_time || 60}s
                       </span>
                       <span className={`text-xs px-2 py-1 rounded ${
-                        script.verificationStatus === 'verified'
+                        script.verification_status === 'verified'
                           ? 'bg-green-100 text-green-700'
                           : 'bg-yellow-100 text-yellow-700'
                       }`}>
-                        {script.verificationStatus === 'verified' ? 'Verified' : 'Review'}
+                        {script.verification_status === 'verified' ? 'Verified' : 'Review'}
                       </span>
                     </div>
                   </div>
@@ -233,9 +255,9 @@ export default function ProjectDetailPage() {
             </h2>
             
             <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
-              {project.topics.map((topic: any, index: number) => (
+              {topics.map((topic: any, index: number) => (
                 <div
-                  key={topic.id || index}
+                  key={topic.id}
                   onClick={() => toggleTopic(topic.id)}
                   className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
                     selectedTopics.has(topic.id)
@@ -252,11 +274,11 @@ export default function ProjectDetailPage() {
                       className="mt-1 h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       onClick={(e) => e.stopPropagation()}
                     />
-                    
+
                     <span className="text-sm font-bold text-gray-500 mt-1 flex-shrink-0">
                       #{index + 1}
                     </span>
-                    
+
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-gray-900 mb-1">
                         {topic.title}
@@ -264,9 +286,9 @@ export default function ProjectDetailPage() {
                       <p className="text-sm text-gray-600 mb-2 italic">
                         "{topic.hook}"
                       </p>
-                      {topic.coreValue && (
+                      {topic.core_value && (
                         <p className="text-xs text-gray-500 mb-2">
-                          {topic.coreValue}
+                          {topic.core_value}
                         </p>
                       )}
                       <div className="flex gap-2 flex-wrap">
@@ -280,9 +302,9 @@ export default function ProjectDetailPage() {
                             {topic.longevity}
                           </span>
                         )}
-                        {topic.formatType && (
+                        {topic.format_type && (
                           <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded">
-                            {topic.formatType}
+                            {topic.format_type}
                           </span>
                         )}
                       </div>
@@ -295,8 +317,8 @@ export default function ProjectDetailPage() {
             <div className="mt-4 pt-4 border-t border-gray-200">
               <button
                 onClick={() => {
-                  const allTopics = project.topics
-                    .map((t: any, i: number) => 
+                  const allTopics = topics
+                    .map((t: any, i: number) =>
                       `${i + 1}. ${t.title}\n   Hook: "${t.hook}"\n`
                     )
                     .join('\n')
