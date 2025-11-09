@@ -2,34 +2,64 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useAuth } from '@clerk/nextjs'
 import Navigation from '../../components/Navigation'
+import { getCurrentUser } from '@/lib/db/users'
+import { getActiveProfile, getUserProfiles } from '@/lib/db/profiles'
+import { getUserProjects, getProjectStats } from '@/lib/db/projects'
 
 export default function DashboardPage() {
+  const { userId: clerkUserId, isLoaded } = useAuth()
   const [profile, setProfile] = useState<any>(null)
   const [projects, setProjects] = useState<any[]>([])
+  const [stats, setStats] = useState({ totalTopics: 0, totalScripts: 0 })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    try {
-      // Load profile
-      const savedProfile = localStorage.getItem('userProfile')
-      if (savedProfile) {
-        setProfile(JSON.parse(savedProfile))
+    async function loadDashboardData() {
+      if (!isLoaded) return
+
+      if (!clerkUserId) {
+        setLoading(false)
+        return
       }
 
-      // Load projects
-      const savedProjects = localStorage.getItem('projects')
-      if (savedProjects) {
-        const parsedProjects = JSON.parse(savedProjects)
-        console.log('Loaded projects:', parsedProjects)
-        setProjects(parsedProjects)
+      try {
+        // Get user's database record
+        const dbUser = await getCurrentUser(clerkUserId)
+
+        if (!dbUser) {
+          console.log('User not found in database yet')
+          setLoading(false)
+          return
+        }
+
+        // Load active profile
+        const activeProfile = await getActiveProfile()
+
+        if (activeProfile) {
+          setProfile(activeProfile)
+
+          // Load projects for this profile
+          const userProjects = await getUserProjects(activeProfile.id)
+          setProjects(userProjects)
+
+          // Load stats
+          const projectStats = await getProjectStats(activeProfile.id)
+          setStats(projectStats)
+        } else {
+          // No profile found - user needs to complete onboarding
+          console.log('No profile found')
+        }
+      } catch (error) {
+        console.error('Error loading dashboard data:', error)
+      } finally {
+        setLoading(false)
       }
-    } catch (error) {
-      console.error('Error loading dashboard data:', error)
-    } finally {
-      setLoading(false)
     }
-  }, [])
+
+    loadDashboardData()
+  }, [clerkUserId, isLoaded])
 
   if (loading) {
     return (
@@ -73,12 +103,12 @@ export default function DashboardPage() {
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-              <p className="text-sm text-gray-600 mt-1">Welcome, {profile.name || 'Creator'}!</p>
+              <p className="text-sm text-gray-600 mt-1">Welcome back!</p>
             </div>
             <div className="text-right">
               <p className="text-xs text-gray-500">Active Profile:</p>
               <p className="text-sm font-medium text-gray-900">
-                {profile.profileName || profile.channelName || profile.niche}
+                {profile.profile_name || profile.channel_name || profile.niche || 'Your Profile'}
               </p>
             </div>
           </div>
@@ -95,13 +125,13 @@ export default function DashboardPage() {
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h3 className="text-sm font-medium text-gray-500 mb-2">Total Topics</h3>
             <p className="text-3xl font-bold text-green-600">
-              {projects.reduce((sum, p) => sum + (p.topics?.length || 0), 0)}
+              {stats.totalTopics}
             </p>
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h3 className="text-sm font-medium text-gray-500 mb-2">Total Scripts</h3>
             <p className="text-3xl font-bold text-purple-600">
-              {projects.reduce((sum, p) => sum + (p.scripts?.length || 0), 0)}
+              {stats.totalScripts}
             </p>
           </div>
         </div>

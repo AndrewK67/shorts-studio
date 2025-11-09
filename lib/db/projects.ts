@@ -132,3 +132,53 @@ export async function deleteProject(projectId: string): Promise<void> {
     throw error
   }
 }
+
+/**
+ * Get project statistics (topic and script counts)
+ */
+export async function getProjectStats(profileId?: string): Promise<{
+  totalTopics: number
+  totalScripts: number
+}> {
+  const supabase = createClient()
+
+  // Get topic count
+  let topicsQuery = supabase
+    .from('topics')
+    .select('id', { count: 'exact', head: true })
+
+  if (profileId) {
+    // Filter by profile through projects
+    topicsQuery = topicsQuery
+      .in('project_id',
+        supabase
+          .from('projects')
+          .select('id')
+          .eq('profile_id', profileId)
+      )
+  }
+
+  const { count: topicCount } = await topicsQuery
+
+  // Get script count
+  let scriptsQuery = supabase
+    .from('scripts')
+    .select('id', { count: 'exact', head: true })
+
+  if (profileId) {
+    scriptsQuery = scriptsQuery
+      .in('project_id',
+        supabase
+          .from('projects')
+          .select('id')
+          .eq('profile_id', profileId)
+      )
+  }
+
+  const { count: scriptCount } = await scriptsQuery
+
+  return {
+    totalTopics: topicCount || 0,
+    totalScripts: scriptCount || 0,
+  }
+}
