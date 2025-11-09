@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuth } from '@clerk/nextjs'
-import { getCurrentUser } from '@/lib/db/users'
+import { useAuth, useUser } from '@clerk/nextjs'
+import { getCurrentUser, createUser } from '@/lib/db/users'
 import { getActiveProfile } from '@/lib/db/profiles'
 import { createProject } from '@/lib/db/projects'
 import { createTopics } from '@/lib/db/topics'
@@ -11,6 +11,7 @@ import { createTopics } from '@/lib/db/topics'
 export default function NewProjectPage() {
   const router = useRouter()
   const { userId: clerkUserId, isLoaded } = useAuth()
+  const { user: clerkUser } = useUser()
   const [loading, setLoading] = useState(false)
   const [pageLoading, setPageLoading] = useState(true)
   const [userProfile, setUserProfile] = useState<any>(null)
@@ -38,11 +39,28 @@ export default function NewProjectPage() {
       }
 
       try {
-        const dbUser = await getCurrentUser(clerkUserId)
+        let dbUser = await getCurrentUser(clerkUserId)
         if (!dbUser) {
-          console.error('User not found in database')
-          router.push('/onboarding')
-          return
+          // Create user record as fallback (until Clerk webhook is set up)
+          console.log('📝 Creating user record in database...')
+          const email = clerkUser?.primaryEmailAddress?.emailAddress || ''
+          const name = clerkUser?.fullName || clerkUser?.firstName || null
+
+          if (!email) {
+            console.error('Unable to get email address')
+            router.push('/onboarding')
+            return
+          }
+
+          try {
+            dbUser = await createUser(clerkUserId, email, name)
+            console.log('✅ User record created:', dbUser.id)
+          } catch (error) {
+            console.error('❌ Failed to create user record:', error)
+            alert('Failed to create user account. Please try again.')
+            router.push('/onboarding')
+            return
+          }
         }
 
         const activeProfile = await getActiveProfile()
@@ -75,9 +93,13 @@ export default function NewProjectPage() {
 
     try {
       // Get database user
-      const dbUser = await getCurrentUser(clerkUserId)
+      let dbUser = await getCurrentUser(clerkUserId)
       if (!dbUser) {
-        throw new Error('User not found in database')
+        // This shouldn't happen since we check in loadProfile, but just in case
+        console.error('User not found in database')
+        alert('User account not found. Please complete onboarding.')
+        router.push('/onboarding')
+        return
       }
 
       // Calculate videos needed

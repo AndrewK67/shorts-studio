@@ -7,9 +7,9 @@ import Navigation from '../../../../../components/Navigation'
 import { getProjectById } from '@/lib/db/projects'
 import { getScriptsByProjectId, createScripts } from '@/lib/db/scripts'
 import { getTopicById } from '@/lib/db/topics'
-import { getCurrentUser } from '@/lib/db/users'
+import { getCurrentUser, createUser } from '@/lib/db/users'
 import { getActiveProfile } from '@/lib/db/profiles'
-import { useAuth } from '@clerk/nextjs'
+import { useAuth, useUser } from '@clerk/nextjs'
 
 type SortField = 'createdAt' | 'readingTime' | 'title'
 type SortOrder = 'asc' | 'desc'
@@ -19,6 +19,7 @@ export default function ScriptsListPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { userId: clerkUserId } = useAuth()
+  const { user: clerkUser } = useUser()
   const [project, setProject] = useState<any>(null)
   const [scripts, setScripts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -75,15 +76,32 @@ export default function ScriptsListPage() {
         return
       }
 
-      const dbUser = await getCurrentUser(clerkUserId)
+      let dbUser = await getCurrentUser(clerkUserId)
       if (!dbUser) {
-        alert('User not found')
-        return
+        // Create user record as fallback (until Clerk webhook is set up)
+        console.log('📝 Creating user record in database...')
+        const email = clerkUser?.primaryEmailAddress?.emailAddress || ''
+        const name = clerkUser?.fullName || clerkUser?.firstName || null
+
+        if (!email) {
+          alert('Unable to get your email address. Please sign in again.')
+          return
+        }
+
+        try {
+          dbUser = await createUser(clerkUserId, email, name)
+          console.log('✅ User record created:', dbUser.id)
+        } catch (error) {
+          console.error('❌ Failed to create user record:', error)
+          alert('Failed to create user account. Please try again.')
+          return
+        }
       }
 
       const profile = await getActiveProfile()
       if (!profile) {
-        alert('No active profile found')
+        alert('No active profile found. Please complete onboarding first.')
+        router.push('/onboarding')
         return
       }
 

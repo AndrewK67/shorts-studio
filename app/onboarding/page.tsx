@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth, useUser } from '@clerk/nextjs'
-import { getCurrentUser } from '@/lib/db/users'
+import { getCurrentUser, createUser } from '@/lib/db/users'
 import { createUserProfile } from '@/lib/db/profiles'
 
 type OnboardingStep = 'profile' | 'location' | 'style' | 'boundaries' | 'complete'
@@ -95,12 +95,28 @@ export default function OnboardingPage() {
 
   try {
     // Get the user's database record
-    const dbUser = await getCurrentUser(clerkUserId)
+    let dbUser = await getCurrentUser(clerkUserId)
 
     if (!dbUser) {
-      alert('User record not found. Please try signing in again.')
-      router.push('/sign-in')
-      return
+      // Create user record as fallback (until Clerk webhook is set up)
+      console.log('📝 Creating user record in database...')
+      const email = clerkUser?.primaryEmailAddress?.emailAddress || ''
+      const name = clerkUser?.fullName || clerkUser?.firstName || null
+
+      if (!email) {
+        alert('Unable to get your email address. Please try signing in again.')
+        router.push('/sign-in')
+        return
+      }
+
+      try {
+        dbUser = await createUser(clerkUserId, email, name)
+        console.log('✅ User record created:', dbUser.id)
+      } catch (error) {
+        console.error('❌ Failed to create user record:', error)
+        alert('Failed to create user account. Please try again.')
+        return
+      }
     }
 
     // Use custom values if "Other" was selected
