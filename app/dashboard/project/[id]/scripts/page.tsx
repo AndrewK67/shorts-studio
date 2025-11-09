@@ -14,14 +14,156 @@ export default function ScriptsListPage() {
   const [project, setProject] = useState<any>(null)
   const [scripts, setScripts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
+  const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 })
   const [searchQuery, setSearchQuery] = useState('')
   const [sortField, setSortField] = useState<SortField>('createdAt')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [filterStatus, setFilterStatus] = useState<'all' | 'needs_review' | 'verified'>('all')
 
   useEffect(() => {
-    loadProject()
+    loadProjectAndGenerateIfNeeded()
   }, [params.id])
+
+  const loadProjectAndGenerateIfNeeded = async () => {
+    try {
+      const savedProjects = localStorage.getItem('projects')
+      if (!savedProjects) {
+        setLoading(false)
+        return
+      }
+
+      const projects = JSON.parse(savedProjects)
+      const currentProject = projects.find((p: any) => p.id === params.id)
+
+      if (!currentProject) {
+        setLoading(false)
+        return
+      }
+
+      setProject(currentProject)
+      setScripts(currentProject.scripts || [])
+      setLoading(false)
+
+      // Check if we need to generate scripts
+      const selectedTopicIdsStr = localStorage.getItem('selectedTopicIds')
+      if (selectedTopicIdsStr) {
+        const selectedTopicIds = JSON.parse(selectedTopicIdsStr)
+
+        if (selectedTopicIds.length > 0) {
+          // Clear the flag immediately to prevent re-triggering
+          localStorage.removeItem('selectedTopicIds')
+
+          // Generate scripts
+          await generateScriptsForTopics(currentProject, selectedTopicIds)
+        }
+      }
+    } catch (err) {
+      console.error('Error loading project:', err)
+      setLoading(false)
+    }
+  }
+
+  const generateScriptsForTopics = async (proj: any, topicIds: string[]) => {
+    setGenerating(true)
+    setGenerationProgress({ current: 0, total: topicIds.length })
+
+    try {
+      // Load user profile
+      const userProfileStr = localStorage.getItem('userProfile')
+      if (!userProfileStr) {
+        alert('Please complete onboarding first to generate scripts')
+        router.push('/onboarding')
+        return
+      }
+
+      const userProfile = JSON.parse(userProfileStr)
+
+      // Find the selected topics
+      const selectedTopics = proj.topics.filter((t: any) => topicIds.includes(t.id))
+
+      if (selectedTopics.length === 0) {
+        alert('Selected topics not found in project')
+        setGenerating(false)
+        return
+      }
+
+      const newScripts: any[] = []
+
+      // Generate script for each topic
+      for (let i = 0; i < selectedTopics.length; i++) {
+        const topic = selectedTopics[i]
+        setGenerationProgress({ current: i + 1, total: selectedTopics.length })
+
+        console.log(`Generating script ${i + 1}/${selectedTopics.length} for topic: ${topic.title}`)
+
+        try {
+          const response = await fetch('/api/scripts/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userProfile,
+              topic,
+              projectConfig: proj.config || {}
+            })
+          })
+
+          const data = await response.json()
+
+          if (data.success && data.script) {
+            // Add topic title to script
+            const scriptWithTopicTitle = {
+              ...data.script,
+              topicTitle: topic.title,
+              topicId: topic.id
+            }
+            newScripts.push(scriptWithTopicTitle)
+            console.log(`✅ Generated script for: ${topic.title}`)
+          } else {
+            console.error(`Failed to generate script for ${topic.title}:`, data.error)
+            alert(`Failed to generate script for "${topic.title}": ${data.error || 'Unknown error'}`)
+          }
+        } catch (error) {
+          console.error(`Error generating script for ${topic.title}:`, error)
+          alert(`Error generating script for "${topic.title}"`)
+        }
+      }
+
+      // Save all new scripts to project
+      if (newScripts.length > 0) {
+        const savedProjects = localStorage.getItem('projects')
+        if (savedProjects) {
+          const projects = JSON.parse(savedProjects)
+          const projectIndex = projects.findIndex((p: any) => p.id === params.id)
+
+          if (projectIndex !== -1) {
+            projects[projectIndex].scripts = [
+              ...(projects[projectIndex].scripts || []),
+              ...newScripts
+            ]
+            localStorage.setItem('projects', JSON.stringify(projects))
+
+            // Update local state
+            setProject(projects[projectIndex])
+            setScripts(projects[projectIndex].scripts || [])
+
+            console.log(`✅ Saved ${newScripts.length} new scripts to project`)
+          }
+        }
+      }
+
+      setGenerating(false)
+
+      if (newScripts.length > 0) {
+        alert(`Successfully generated ${newScripts.length} script${newScripts.length !== 1 ? 's' : ''}!`)
+      }
+
+    } catch (error) {
+      console.error('Error in generateScriptsForTopics:', error)
+      alert('Failed to generate scripts. Please try again.')
+      setGenerating(false)
+    }
+  }
 
   const loadProject = () => {
     try {
@@ -176,6 +318,30 @@ ${Array.isArray(script.visualCues)
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-blue-600 mx-auto mb-4"></div>
             <p className="text-gray-600">Loading scripts...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (generating) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navigation />
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center max-w-md">
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-gray-200 border-t-blue-600 mx-auto mb-6"></div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Generating Scripts...</h2>
+            <p className="text-gray-600 mb-4">
+              Creating script {generationProgress.current} of {generationProgress.total}
+            </p>
+            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+              <div
+                className="bg-blue-600 h-3 rounded-full transition-all duration-300"
+                style={{ width: `${(generationProgress.current / generationProgress.total) * 100}%` }}
+              ></div>
+            </div>
+            <p className="text-sm text-gray-500 mt-4">This may take a minute or two...</p>
           </div>
         </div>
       </div>
