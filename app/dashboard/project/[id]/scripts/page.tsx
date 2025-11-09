@@ -18,10 +18,19 @@ export default function ScriptsListPage() {
   const [sortField, setSortField] = useState<SortField>('createdAt')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [filterStatus, setFilterStatus] = useState<'all' | 'needs_review' | 'verified'>('all')
+  const [generating, setGenerating] = useState(false)
+  const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 })
+  const [generationStatus, setGenerationStatus] = useState('')
 
   useEffect(() => {
     loadProject()
   }, [params.id])
+
+  useEffect(() => {
+    if (project) {
+      checkAndGenerateScripts()
+    }
+  }, [project])
 
   const loadProject = () => {
     try {
@@ -38,6 +47,103 @@ export default function ScriptsListPage() {
     } catch (err) {
       console.error('Error loading project:', err)
       setLoading(false)
+    }
+  }
+
+  const checkAndGenerateScripts = async () => {
+    // Check if there are selected topics for script generation
+    const selectedTopicIdsStr = localStorage.getItem('selectedTopicIds')
+    if (!selectedTopicIdsStr) return
+
+    const selectedTopicIds = JSON.parse(selectedTopicIdsStr)
+    if (selectedTopicIds.length === 0) return
+
+    // Get the selected topics
+    const topicsToGenerate = project.topics.filter((t: any) => selectedTopicIds.includes(t.id))
+    if (topicsToGenerate.length === 0) {
+      localStorage.removeItem('selectedTopicIds')
+      return
+    }
+
+    // Start generation
+    setGenerating(true)
+    setGenerationProgress({ current: 0, total: topicsToGenerate.length })
+
+    const newScripts: any[] = []
+    let successCount = 0
+    let failCount = 0
+
+    for (let i = 0; i < topicsToGenerate.length; i++) {
+      const topic = topicsToGenerate[i]
+      setGenerationStatus(`Generating script ${i + 1}/${topicsToGenerate.length}: "${topic.title}"`)
+      setGenerationProgress({ current: i + 1, total: topicsToGenerate.length })
+
+      try {
+        const response = await fetch('/api/scripts/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userProfile: project.userProfile || {},
+            topic: topic,
+            projectConfig: project,
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
+
+        const data = await response.json()
+        if (data.success && data.script) {
+          newScripts.push({
+            ...data.script,
+            topicId: topic.id,
+            topicTitle: topic.title,
+            createdAt: new Date().toISOString(),
+          })
+          successCount++
+        } else {
+          throw new Error('Invalid response from API')
+        }
+      } catch (error) {
+        console.error(`Failed to generate script for topic "${topic.title}":`, error)
+        failCount++
+      }
+    }
+
+    // Save scripts to project
+    if (newScripts.length > 0) {
+      try {
+        const savedProjects = localStorage.getItem('projects')
+        if (savedProjects) {
+          const projects = JSON.parse(savedProjects)
+          const projectIndex = projects.findIndex((p: any) => p.id === params.id)
+
+          if (projectIndex !== -1) {
+            projects[projectIndex].scripts = [
+              ...(projects[projectIndex].scripts || []),
+              ...newScripts,
+            ]
+            localStorage.setItem('projects', JSON.stringify(projects))
+            setProject(projects[projectIndex])
+            setScripts(projects[projectIndex].scripts)
+          }
+        }
+      } catch (err) {
+        console.error('Error saving scripts:', err)
+      }
+    }
+
+    // Clear selected topics
+    localStorage.removeItem('selectedTopicIds')
+    setGenerating(false)
+    setGenerationStatus('')
+
+    // Show summary
+    if (successCount > 0) {
+      alert(`✅ Successfully generated ${successCount} script${successCount !== 1 ? 's' : ''}!${failCount > 0 ? `\n⚠️ ${failCount} failed` : ''}`)
+    } else {
+      alert('❌ Failed to generate any scripts. Please try again.')
     }
   }
 
@@ -168,14 +274,32 @@ ${Array.isArray(script.visualCues)
     return 'N/A'
   }
 
-  if (loading) {
+  if (loading || generating) {
     return (
       <div className="min-h-screen bg-gray-50">
         <Navigation />
         <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="text-center">
+          <div className="text-center max-w-md">
             <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading scripts...</p>
+            <p className="text-gray-600 mb-2">
+              {generating ? 'Generating scripts...' : 'Loading scripts...'}
+            </p>
+            {generating && generationProgress.total > 0 && (
+              <>
+                <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
+                  <div
+                    className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                    style={{ width: `${(generationProgress.current / generationProgress.total) * 100}%` }}
+                  ></div>
+                </div>
+                <p className="text-sm text-gray-500">
+                  {generationProgress.current} of {generationProgress.total} complete
+                </p>
+                {generationStatus && (
+                  <p className="text-xs text-gray-400 mt-2 truncate">{generationStatus}</p>
+                )}
+              </>
+            )}
           </div>
         </div>
       </div>
