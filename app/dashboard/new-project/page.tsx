@@ -1,11 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useAuth } from '@clerk/nextjs'
+import { getCurrentUser } from '@/lib/db/users'
+import { getActiveProfile } from '@/lib/db/profiles'
+import { createProject } from '@/lib/db/projects'
+import { createTopics } from '@/lib/db/topics'
 
 export default function NewProjectPage() {
   const router = useRouter()
+  const { userId: clerkUserId, isLoaded } = useAuth()
   const [loading, setLoading] = useState(false)
+  const [pageLoading, setPageLoading] = useState(true)
+  const [userProfile, setUserProfile] = useState<any>(null)
   const [projectConfig, setProjectConfig] = useState({
     month: new Date().toISOString().slice(0, 7),
     postsPerDay: 1,
@@ -20,13 +28,59 @@ export default function NewProjectPage() {
     }
   })
 
+  useEffect(() => {
+    async function loadProfile() {
+      if (!isLoaded) return
+
+      if (!clerkUserId) {
+        router.push('/sign-in')
+        return
+      }
+
+      try {
+        const dbUser = await getCurrentUser(clerkUserId)
+        if (!dbUser) {
+          console.error('User not found in database')
+          router.push('/onboarding')
+          return
+        }
+
+        const activeProfile = await getActiveProfile()
+        if (!activeProfile) {
+          console.error('No active profile found')
+          router.push('/onboarding')
+          return
+        }
+
+        setUserProfile(activeProfile)
+      } catch (error) {
+        console.error('Error loading profile:', error)
+        alert('Failed to load your profile. Please try again.')
+      } finally {
+        setPageLoading(false)
+      }
+    }
+
+    loadProfile()
+  }, [clerkUserId, isLoaded, router])
+
   const handleGenerateTopics = async () => {
+    if (!clerkUserId || !userProfile) {
+      alert('Please complete your profile first')
+      router.push('/onboarding')
+      return
+    }
+
     setLoading(true)
 
     try {
-      const profile = JSON.parse(localStorage.getItem('userProfile') || '{}')
-      const regional = JSON.parse(localStorage.getItem('regionalConfig') || '{}')
+      // Get database user
+      const dbUser = await getCurrentUser(clerkUserId)
+      if (!dbUser) {
+        throw new Error('User not found in database')
+      }
 
+      // Calculate videos needed
       const daysInMonth = new Date(
         parseInt(projectConfig.month.split('-')[0]),
         parseInt(projectConfig.month.split('-')[1]),
@@ -35,14 +89,41 @@ export default function NewProjectPage() {
 
       const totalVideosNeeded = (daysInMonth * projectConfig.postsPerDay) + projectConfig.bufferVideos
 
+      // Create project in database first
+      const projectName = `${new Date(projectConfig.month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} Plan`
+
+      console.log('Creating project in database...')
+      const newProject = await createProject(dbUser.id, userProfile.id, {
+        name: projectName,
+        month: projectConfig.month,
+        videos_needed: totalVideosNeeded,
+        tone_mix: projectConfig.toneMix,
+        status: 'planning'
+      })
+
+      console.log('✅ Project created:', newProject.id)
+
+      // Prepare profile data for API (convert database format to API format)
+      const profileForAPI = {
+        name: userProfile.profile_name,
+        channelName: userProfile.channel_name,
+        niche: userProfile.niche,
+        uniqueAngle: userProfile.unique_angle,
+        primaryTone: userProfile.primary_tone,
+        secondaryTone: userProfile.secondary_tone,
+        accentTone: userProfile.accent_tone,
+      }
+
+      // Generate topics via API
+      console.log('Generating topics via API...')
       const response = await fetch('/api/topics/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          userProfile: profile,
-          regional: regional,
+          userProfile: profileForAPI,
+          regional: {}, // TODO: Load from database when implemented
           projectConfig: {
             ...projectConfig,
             videosNeeded: totalVideosNeeded
@@ -55,29 +136,29 @@ export default function NewProjectPage() {
       }
 
       const data = await response.json()
+      console.log(`✅ Generated ${data.topics.length} topics`)
 
-      const project = {
-        id: Date.now().toString(),
-        name: `${new Date(projectConfig.month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} Plan`,
-        month: projectConfig.month,
-        videosNeeded: totalVideosNeeded,
-        toneMix: projectConfig.toneMix,
-        productionMode: projectConfig.productionMode,
-        status: 'planning',
-        topics: data.topics,
-        scripts: [],
-        profileName: profile.profileName || profile.name,
-        niche: profile.niche,
-        primaryTone: profile.primaryTone,
-        location: profile.location,
-        createdAt: new Date().toISOString()
-      }
+      // Save topics to database
+      const topicsToSave = data.topics.map((topic: any) => ({
+        title: topic.title,
+        hook: topic.hook,
+        core_value: topic.coreValue,
+        emotional_driver: topic.emotionalDriver,
+        format_type: topic.formatType,
+        tone: topic.tone,
+        longevity: topic.longevity,
+        date_range_start: topic.dateRangeStart,
+        date_range_end: topic.dateRangeEnd,
+        fact_check_status: topic.factCheckStatus || 'needs_review',
+        order_index: topic.orderIndex,
+      }))
 
-      const existingProjects = JSON.parse(localStorage.getItem('projects') || '[]')
-      existingProjects.push(project)
-      localStorage.setItem('projects', JSON.stringify(existingProjects))
+      console.log('Saving topics to database...')
+      await createTopics(newProject.id, topicsToSave)
+      console.log('✅ Topics saved to database')
 
-      router.push(`/dashboard/project/${project.id}`)
+      // Redirect to project detail page
+      router.push(`/dashboard/project/${newProject.id}`)
     } catch (error) {
       console.error('Error:', error)
       alert('Failed to generate topics. Please try again.')
@@ -93,6 +174,27 @@ export default function NewProjectPage() {
   ).getDate()
 
   const totalVideosNeeded = (daysInMonth * projectConfig.postsPerDay) + projectConfig.bufferVideos
+
+  if (pageLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading your profile...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!userProfile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-600">No profile found. Redirecting...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
