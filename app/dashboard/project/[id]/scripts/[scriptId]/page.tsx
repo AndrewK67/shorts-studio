@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Navigation from '../../../../../../components/Navigation'
+import { getProjectById } from '@/lib/db/projects'
+import { getScriptById, updateScript, deleteScript } from '@/lib/db/scripts'
 
 export default function ScriptDetailPage() {
   const params = useParams()
@@ -11,6 +13,7 @@ export default function ScriptDetailPage() {
   const searchParams = useSearchParams()
   const [project, setProject] = useState<any>(null)
   const [script, setScript] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
   const [isEditing, setIsEditing] = useState(false)
   const [editedContent, setEditedContent] = useState('')
   const [editedHook, setEditedHook] = useState('')
@@ -25,47 +28,59 @@ export default function ScriptDetailPage() {
     }
   }, [params.id, params.scriptId, searchParams])
 
-  const loadScript = () => {
-    const projects = JSON.parse(localStorage.getItem('projects') || '[]')
-    const currentProject = projects.find((p: any) => p.id === params.id)
+  const loadScript = async () => {
+    try {
+      const projectId = params.id as string
+      const scriptId = params.scriptId as string
 
-    if (currentProject) {
-      setProject(currentProject)
-      const scriptIndex = parseInt(params.scriptId as string)
-      if (currentProject.scripts && currentProject.scripts[scriptIndex]) {
-        const currentScript = currentProject.scripts[scriptIndex]
-        setScript(currentScript)
-        setEditedContent(currentScript.content || currentScript.fullScript || '')
-        setEditedHook(currentScript.hook || '')
-        setFactChecked(currentScript.verificationStatus === 'verified')
+      // Load project from database
+      const projectData = await getProjectById(projectId)
+      if (!projectData) {
+        console.error('Project not found')
+        setLoading(false)
+        return
       }
+      setProject(projectData)
+
+      // Load script from database
+      const scriptData = await getScriptById(scriptId)
+      if (!scriptData) {
+        console.error('Script not found')
+        setLoading(false)
+        return
+      }
+
+      setScript(scriptData)
+      setEditedContent(scriptData.content || '')
+      setEditedHook(scriptData.hook || '')
+      setFactChecked(scriptData.verification_status === 'verified')
+
+      console.log('✅ Loaded script:', scriptData.id)
+    } catch (err) {
+      console.error('Error loading script:', err)
+    } finally {
+      setLoading(false)
     }
   }
 
   const handleSave = async () => {
+    if (!script) return
+
     setSaving(true)
     try {
-      const projects = JSON.parse(localStorage.getItem('projects') || '[]')
-      const projectIndex = projects.findIndex((p: any) => p.id === params.id)
+      const scriptId = params.scriptId as string
 
-      if (projectIndex !== -1) {
-        const scriptIndex = parseInt(params.scriptId as string)
+      // Update script in database
+      const updatedScript = await updateScript(scriptId, {
+        content: editedContent,
+        hook: editedHook,
+        verification_status: factChecked ? 'verified' : 'needs_review',
+      })
 
-        // Update the script
-        projects[projectIndex].scripts[scriptIndex] = {
-          ...projects[projectIndex].scripts[scriptIndex],
-          content: editedContent,
-          fullScript: editedContent,
-          hook: editedHook,
-          verificationStatus: factChecked ? 'verified' : 'needs_review',
-          updatedAt: new Date().toISOString(),
-        }
-
-        localStorage.setItem('projects', JSON.stringify(projects))
-        setScript(projects[projectIndex].scripts[scriptIndex])
-        setIsEditing(false)
-        alert('Script saved successfully!')
-      }
+      setScript(updatedScript)
+      setIsEditing(false)
+      alert('Script saved successfully!')
+      console.log('✅ Script updated:', updatedScript.id)
     } catch (err) {
       console.error('Error saving script:', err)
       alert('Failed to save script')
@@ -74,21 +89,19 @@ export default function ScriptDetailPage() {
     }
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!confirm('Are you sure you want to delete this script? This action cannot be undone.')) {
       return
     }
 
     try {
-      const projects = JSON.parse(localStorage.getItem('projects') || '[]')
-      const projectIndex = projects.findIndex((p: any) => p.id === params.id)
+      const scriptId = params.scriptId as string
 
-      if (projectIndex !== -1) {
-        const scriptIndex = parseInt(params.scriptId as string)
-        projects[projectIndex].scripts.splice(scriptIndex, 1)
-        localStorage.setItem('projects', JSON.stringify(projects))
-        router.push(`/dashboard/project/${params.id}/scripts`)
-      }
+      // Delete script from database
+      await deleteScript(scriptId)
+
+      console.log('✅ Script deleted')
+      router.push(`/dashboard/project/${params.id}/scripts`)
     } catch (err) {
       console.error('Error deleting script:', err)
       alert('Failed to delete script')
@@ -99,10 +112,10 @@ export default function ScriptDetailPage() {
     if (!script) return
 
     const exportText = `
-SCRIPT: ${script.topicTitle || 'Untitled'}
-Reading Time: ${script.readingTime || 'N/A'} seconds
-Created: ${script.createdAt ? new Date(script.createdAt).toLocaleDateString() : 'N/A'}
-Status: ${script.verificationStatus === 'verified' ? 'Verified' : 'Needs Review'}
+SCRIPT: ${script.hook || 'Untitled'}
+Reading Time: ${script.reading_time || 'N/A'} seconds
+Created: ${script.created_at ? new Date(script.created_at).toLocaleDateString() : 'N/A'}
+Status: ${script.verification_status === 'verified' ? 'Verified' : 'Needs Review'}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -112,17 +125,17 @@ ${script.hook || 'N/A'}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 FULL SCRIPT:
-${script.content || script.fullScript || 'No content available'}
+${script.content || 'No content available'}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 DELIVERY NOTES:
-${formatDeliveryNotes(script.deliveryNotes)}
+${formatDeliveryNotes(script.delivery_notes)}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 VISUAL CUES:
-${formatVisualCues(script.visualCues)}
+${formatVisualCues(script.visual_cues)}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -133,7 +146,7 @@ Generated by Shorts Studio
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `script-${script.topicTitle || script.id || Date.now()}.txt`
+    a.download = `script-${script.id || Date.now()}.txt`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -172,21 +185,21 @@ Generated by Shorts Studio
     })
   }
 
-  if (!project || !script) {
+  if (loading || !script) {
     return (
       <div className="min-h-screen bg-gray-50">
         <Navigation />
         <div className="min-h-screen flex items-center justify-center">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading...</p>
+            <p className="text-gray-600">Loading script...</p>
           </div>
         </div>
       </div>
     )
   }
 
-  const scriptTitle = script.topicTitle || script.hook?.substring(0, 50) || `Script #${params.scriptId}`
+  const scriptTitle = script.hook?.substring(0, 50) || 'Untitled Script'
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -204,7 +217,7 @@ Generated by Shorts Studio
             <div>
               <h1 className="text-2xl font-bold text-gray-900">{scriptTitle}</h1>
               <p className="text-sm text-gray-600 mt-1">
-                Reading time: {script.readingTime || 60} seconds
+                Reading time: {script.reading_time || 60} seconds
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -241,8 +254,9 @@ Generated by Shorts Studio
                   <button
                     onClick={() => {
                       setIsEditing(false)
-                      setEditedContent(script.content || script.fullScript || '')
+                      setEditedContent(script.content || '')
                       setEditedHook(script.hook || '')
+                      setFactChecked(script.verification_status === 'verified')
                     }}
                     className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-semibold"
                   >
@@ -295,7 +309,7 @@ Generated by Shorts Studio
                 </div>
               ) : (
                 <div className="bg-gray-50 p-6 rounded-lg font-mono text-sm whitespace-pre-line leading-relaxed">
-                  {parseDeliveryNote(script.content || script.fullScript || 'No content')}
+                  {parseDeliveryNote(script.content || 'No content')}
                 </div>
               )}
             </div>
@@ -307,16 +321,16 @@ Generated by Shorts Studio
                 <div>
                   <p className="font-medium text-gray-700">Created:</p>
                   <p className="text-gray-600">
-                    {script.createdAt
-                      ? new Date(script.createdAt).toLocaleDateString()
+                    {script.created_at
+                      ? new Date(script.created_at).toLocaleDateString()
                       : 'N/A'}
                   </p>
                 </div>
                 <div>
                   <p className="font-medium text-gray-700">Last Updated:</p>
                   <p className="text-gray-600">
-                    {script.updatedAt
-                      ? new Date(script.updatedAt).toLocaleDateString()
+                    {script.updated_at
+                      ? new Date(script.updated_at).toLocaleDateString()
                       : 'N/A'}
                   </p>
                 </div>
@@ -326,7 +340,7 @@ Generated by Shorts Studio
                 </div>
                 <div>
                   <p className="font-medium text-gray-700">Reading Time:</p>
-                  <p className="text-gray-600">{script.readingTime || 60}s</p>
+                  <p className="text-gray-600">{script.reading_time || 60}s</p>
                 </div>
               </div>
             </div>
@@ -360,11 +374,11 @@ Generated by Shorts Studio
                 </div>
               </label>
 
-              {script.factCheckNotes?.claims && script.factCheckNotes.claims.length > 0 && (
+              {script.fact_check_notes?.claims && script.fact_check_notes.claims.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-yellow-200">
                   <p className="font-medium text-yellow-900 text-sm mb-2">Claims to Verify:</p>
                   <ul className="text-yellow-800 list-disc list-inside text-sm space-y-1">
-                    {script.factCheckNotes.claims.map((claim: string, i: number) => (
+                    {script.fact_check_notes.claims.map((claim: string, i: number) => (
                       <li key={i}>{claim}</li>
                     ))}
                   </ul>
@@ -373,45 +387,45 @@ Generated by Shorts Studio
             </div>
 
             {/* Delivery Notes */}
-            {script.deliveryNotes && (
+            {script.delivery_notes && (
               <div className="bg-white rounded-xl shadow-sm p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Delivery Notes</h2>
                 <div className="space-y-3 text-sm">
-                  {typeof script.deliveryNotes === 'object' ? (
+                  {typeof script.delivery_notes === 'object' ? (
                     <>
-                      {script.deliveryNotes.pacing && (
+                      {script.delivery_notes.pacing && (
                         <div>
                           <p className="font-medium text-gray-700">Pacing:</p>
-                          <p className="text-gray-600">{script.deliveryNotes.pacing}</p>
+                          <p className="text-gray-600">{script.delivery_notes.pacing}</p>
                         </div>
                       )}
-                      {script.deliveryNotes.energy && (
+                      {script.delivery_notes.energy && (
                         <div>
                           <p className="font-medium text-gray-700">Energy Level:</p>
-                          <p className="text-gray-600">{script.deliveryNotes.energy}</p>
+                          <p className="text-gray-600">{script.delivery_notes.energy}</p>
                         </div>
                       )}
-                      {script.deliveryNotes.tone && (
+                      {script.delivery_notes.tone && (
                         <div>
                           <p className="font-medium text-gray-700">Tone:</p>
-                          <p className="text-gray-600">{script.deliveryNotes.tone}</p>
+                          <p className="text-gray-600">{script.delivery_notes.tone}</p>
                         </div>
                       )}
-                      {script.deliveryNotes.pauses && Array.isArray(script.deliveryNotes.pauses) && (
+                      {script.delivery_notes.pauses && Array.isArray(script.delivery_notes.pauses) && (
                         <div>
                           <p className="font-medium text-gray-700">Key Pauses:</p>
                           <ul className="text-gray-600 list-disc list-inside">
-                            {script.deliveryNotes.pauses.map((pause: string, i: number) => (
+                            {script.delivery_notes.pauses.map((pause: string, i: number) => (
                               <li key={i}>{pause}</li>
                             ))}
                           </ul>
                         </div>
                       )}
-                      {script.deliveryNotes.emphasis && Array.isArray(script.deliveryNotes.emphasis) && (
+                      {script.delivery_notes.emphasis && Array.isArray(script.delivery_notes.emphasis) && (
                         <div>
                           <p className="font-medium text-gray-700">Emphasis:</p>
                           <ul className="text-gray-600 list-disc list-inside">
-                            {script.deliveryNotes.emphasis.map((word: string, i: number) => (
+                            {script.delivery_notes.emphasis.map((word: string, i: number) => (
                               <li key={i}>{word}</li>
                             ))}
                           </ul>
@@ -419,50 +433,50 @@ Generated by Shorts Studio
                       )}
                     </>
                   ) : (
-                    <p className="text-gray-600">{script.deliveryNotes}</p>
+                    <p className="text-gray-600">{script.delivery_notes}</p>
                   )}
                 </div>
               </div>
             )}
 
             {/* Visual Cues / B-Roll Ideas */}
-            {script.visualCues && (
+            {script.visual_cues && (
               <div className="bg-white rounded-xl shadow-sm p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Visual Cues / B-Roll</h2>
                 <div className="space-y-3 text-sm">
-                  {Array.isArray(script.visualCues) ? (
+                  {Array.isArray(script.visual_cues) ? (
                     <ul className="text-gray-600 list-disc list-inside space-y-1">
-                      {script.visualCues.map((cue: string, i: number) => (
+                      {script.visual_cues.map((cue: string, i: number) => (
                         <li key={i}>{cue}</li>
                       ))}
                     </ul>
-                  ) : typeof script.visualCues === 'object' ? (
+                  ) : typeof script.visual_cues === 'object' ? (
                     <>
-                      {script.visualCues.bRoll && Array.isArray(script.visualCues.bRoll) && (
+                      {script.visual_cues.bRoll && Array.isArray(script.visual_cues.bRoll) && (
                         <div>
                           <p className="font-medium text-gray-700">B-Roll Suggestions:</p>
                           <ul className="text-gray-600 list-disc list-inside mt-1">
-                            {script.visualCues.bRoll.map((item: string, i: number) => (
+                            {script.visual_cues.bRoll.map((item: string, i: number) => (
                               <li key={i}>{item}</li>
                             ))}
                           </ul>
                         </div>
                       )}
-                      {script.visualCues.textOverlays && Array.isArray(script.visualCues.textOverlays) && (
+                      {script.visual_cues.textOverlays && Array.isArray(script.visual_cues.textOverlays) && (
                         <div>
                           <p className="font-medium text-gray-700">Text Overlays:</p>
                           <ul className="text-gray-600 list-disc list-inside mt-1">
-                            {script.visualCues.textOverlays.map((text: string, i: number) => (
+                            {script.visual_cues.textOverlays.map((text: string, i: number) => (
                               <li key={i}>{text}</li>
                             ))}
                           </ul>
                         </div>
                       )}
-                      {script.visualCues.stockFootageKeywords && (
+                      {script.visual_cues.stockFootageKeywords && (
                         <div>
                           <p className="font-medium text-gray-700">Stock Footage Keywords:</p>
                           <div className="flex flex-wrap gap-2 mt-2">
-                            {script.visualCues.stockFootageKeywords.map((keyword: string, i: number) => (
+                            {script.visual_cues.stockFootageKeywords.map((keyword: string, i: number) => (
                               <span key={i} className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">
                                 {keyword}
                               </span>
@@ -472,7 +486,7 @@ Generated by Shorts Studio
                       )}
                     </>
                   ) : (
-                    <p className="text-gray-600">{String(script.visualCues)}</p>
+                    <p className="text-gray-600">{String(script.visual_cues)}</p>
                   )}
                 </div>
               </div>
