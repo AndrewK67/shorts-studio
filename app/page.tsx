@@ -2,8 +2,11 @@
 
 import Link from 'next/link'
 import Navigation from '../components/Navigation'
+import { useAuth } from '@clerk/nextjs'
 
 export default function Home() {
+  const { isSignedIn } = useAuth()
+
   return (
     <>
       <Navigation />
@@ -18,18 +21,37 @@ export default function Home() {
               Create authentic, engaging content that resonates with your audience.
             </p>
             <div className="flex gap-4 justify-center">
-              <Link 
-                href="/onboarding"
-                className="px-8 py-4 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors shadow-lg"
-              >
-                Get Started
-              </Link>
-              <Link 
-                href="/dashboard"
-                className="px-8 py-4 bg-white text-blue-600 border-2 border-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-colors"
-              >
-                Go to Dashboard
-              </Link>
+              {isSignedIn ? (
+                <>
+                  <Link
+                    href="/dashboard"
+                    className="px-8 py-4 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors shadow-lg"
+                  >
+                    Go to Dashboard
+                  </Link>
+                  <Link
+                    href="/dashboard/new-project"
+                    className="px-8 py-4 bg-white text-blue-600 border-2 border-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-colors"
+                  >
+                    New Project
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/sign-up"
+                    className="px-8 py-4 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors shadow-lg"
+                  >
+                    Get Started Free
+                  </Link>
+                  <Link
+                    href="/sign-in"
+                    className="px-8 py-4 bg-white text-blue-600 border-2 border-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-colors"
+                  >
+                    Sign In
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         </div>

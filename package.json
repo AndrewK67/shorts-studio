@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
+    "@clerk/nextjs": "^6.34.5",
     "@hookform/resolvers": "^5.2.2",
     "@tanstack/react-query": "^5.90.7",
     "@tiptap/extension-placeholder": "^3.10.4",

@@ -2,9 +2,11 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
+import { UserButton, useAuth } from '@clerk/nextjs'
 
 export default function Navigation() {
   const [isOpen, setIsOpen] = useState(false)
+  const { isSignedIn } = useAuth()
 
   return (
     <nav className="bg-white shadow-sm">
@@ -33,14 +35,41 @@ export default function Navigation() {
             </Link>
           </div>
 
-          {/* Sign In / Get Started (Desktop) */}
-          <div className="hidden sm:ml-6 sm:flex sm:items-center">
-            <Link
-              href="/onboarding"
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
-            >
-              Get Started
-            </Link>
+          {/* Auth Section (Desktop) */}
+          <div className="hidden sm:ml-6 sm:flex sm:items-center sm:space-x-4">
+            {isSignedIn ? (
+              <>
+                <Link
+                  href="/dashboard/new-project"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+                >
+                  New Project
+                </Link>
+                <UserButton
+                  appearance={{
+                    elements: {
+                      avatarBox: "w-10 h-10"
+                    }
+                  }}
+                  afterSignOutUrl="/"
+                />
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/sign-in"
+                  className="px-4 py-2 text-gray-700 hover:text-gray-900 font-medium"
+                >
+                  Sign In
+                </Link>
+                <Link
+                  href="/sign-up"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+                >
+                  Get Started
+                </Link>
+              </>
+            )}
           </div>
 
           {/* Mobile Menu Button */}
@@ -111,13 +140,42 @@ export default function Navigation() {
             </Link>
           </div>
           <div className="pt-4 pb-3 border-t border-gray-200">
-            <div className="flex items-center px-4">
-              <Link
-                href="/onboarding"
-                className="w-full text-center px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
-              >
-                Get Started
-              </Link>
+            <div className="flex flex-col items-stretch px-4 space-y-2">
+              {isSignedIn ? (
+                <>
+                  <Link
+                    href="/dashboard/new-project"
+                    className="text-center px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+                  >
+                    New Project
+                  </Link>
+                  <div className="flex items-center justify-center py-2">
+                    <UserButton
+                      appearance={{
+                        elements: {
+                          avatarBox: "w-10 h-10"
+                        }
+                      }}
+                      afterSignOutUrl="/"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/sign-in"
+                    className="text-center px-4 py-2 text-gray-700 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                  >
+                    Sign In
+                  </Link>
+                  <Link
+                    href="/sign-up"
+                    className="text-center px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+                  >
+                    Get Started
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         </div>
