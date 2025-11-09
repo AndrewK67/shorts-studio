@@ -1,9 +1,15 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Navigation from '../../../../../components/Navigation'
+import { getProjectById } from '@/lib/db/projects'
+import { getScriptsByProjectId, createScripts } from '@/lib/db/scripts'
+import { getTopicById } from '@/lib/db/topics'
+import { getCurrentUser } from '@/lib/db/users'
+import { getActiveProfile } from '@/lib/db/profiles'
+import { useAuth } from '@clerk/nextjs'
 
 type SortField = 'createdAt' | 'readingTime' | 'title'
 type SortOrder = 'asc' | 'desc'
@@ -11,29 +17,47 @@ type SortOrder = 'asc' | 'desc'
 export default function ScriptsListPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const { userId: clerkUserId } = useAuth()
   const [project, setProject] = useState<any>(null)
   const [scripts, setScripts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
+  const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 })
   const [searchQuery, setSearchQuery] = useState('')
   const [sortField, setSortField] = useState<SortField>('createdAt')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [filterStatus, setFilterStatus] = useState<'all' | 'needs_review' | 'verified'>('all')
 
   useEffect(() => {
-    loadProject()
-  }, [params.id])
+    loadProjectAndScripts()
+  }, [params.id, searchParams])
 
-  const loadProject = () => {
+  const loadProjectAndScripts = async () => {
     try {
-      const savedProjects = localStorage.getItem('projects')
-      if (savedProjects) {
-        const projects = JSON.parse(savedProjects)
-        const currentProject = projects.find((p: any) => p.id === params.id)
-        if (currentProject) {
-          setProject(currentProject)
-          setScripts(currentProject.scripts || [])
-        }
+      const projectId = params.id as string
+
+      // Load project from database
+      const projectData = await getProjectById(projectId)
+      if (!projectData) {
+        console.error('Project not found')
+        setLoading(false)
+        return
       }
+
+      setProject(projectData)
+
+      // Check if we need to generate scripts for selected topics
+      const topicsParam = searchParams.get('topics')
+      if (topicsParam && !generating) {
+        await handleGenerateScripts(projectId, topicsParam)
+      }
+
+      // Load scripts from database
+      const scriptsData = await getScriptsByProjectId(projectId)
+      setScripts(scriptsData)
+
+      console.log(`✅ Loaded ${scriptsData.length} scripts`)
       setLoading(false)
     } catch (err) {
       console.error('Error loading project:', err)
@@ -41,26 +65,131 @@ export default function ScriptsListPage() {
     }
   }
 
-  const handleDelete = (scriptId: string, scriptIndex: number) => {
+  const handleGenerateScripts = async (projectId: string, topicsParam: string) => {
+    try {
+      setGenerating(true)
+
+      // Get user profile for script generation
+      if (!clerkUserId) {
+        alert('Please sign in to generate scripts')
+        return
+      }
+
+      const dbUser = await getCurrentUser(clerkUserId)
+      if (!dbUser) {
+        alert('User not found')
+        return
+      }
+
+      const profile = await getActiveProfile()
+      if (!profile) {
+        alert('No active profile found')
+        return
+      }
+
+      const topicIds = topicsParam.split(',')
+      setGenerationProgress({ current: 0, total: topicIds.length })
+
+      const generatedScripts = []
+
+      for (let i = 0; i < topicIds.length; i++) {
+        const topicId = topicIds[i]
+        setGenerationProgress({ current: i + 1, total: topicIds.length })
+
+        // Load topic from database
+        const topic = await getTopicById(topicId)
+        if (!topic) {
+          console.error(`Topic ${topicId} not found`)
+          continue
+        }
+
+        console.log(`Generating script ${i + 1}/${topicIds.length} for: ${topic.title}`)
+
+        // Convert profile for API
+        const profileForAPI = {
+          name: profile.profile_name,
+          channelName: profile.channel_name,
+          niche: profile.niche,
+          primaryTone: profile.primary_tone,
+          secondaryTone: profile.secondary_tone,
+        }
+
+        // Convert topic for API (camelCase format)
+        const topicForAPI = {
+          id: topic.id,
+          title: topic.title,
+          hook: topic.hook,
+          coreValue: topic.core_value,
+          tone: topic.tone,
+          formatType: topic.format_type,
+        }
+
+        // Call script generation API
+        const response = await fetch('/api/scripts/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userProfile: profileForAPI,
+            topic: topicForAPI,
+          }),
+        })
+
+        if (!response.ok) {
+          console.error(`Failed to generate script for topic ${topic.title}`)
+          continue
+        }
+
+        const data = await response.json()
+        if (data.script) {
+          generatedScripts.push({
+            topic_id: topicId,
+            content: data.script.content,
+            hook: data.script.hook,
+            reading_time: data.script.readingTime,
+            delivery_notes: data.script.deliveryNotes,
+            visual_cues: data.script.visualCues,
+            verification_status: 'pending',
+          })
+        }
+      }
+
+      // Save all generated scripts to database
+      if (generatedScripts.length > 0) {
+        console.log(`Saving ${generatedScripts.length} scripts to database...`)
+        await createScripts(projectId, generatedScripts)
+        console.log('✅ Scripts saved to database')
+
+        // Reload scripts from database
+        const updatedScripts = await getScriptsByProjectId(projectId)
+        setScripts(updatedScripts)
+      }
+
+      // Clear the topics query param from URL
+      router.replace(`/dashboard/project/${projectId}/scripts`)
+
+    } catch (error) {
+      console.error('Error generating scripts:', error)
+      alert('Failed to generate scripts. Please try again.')
+    } finally {
+      setGenerating(false)
+      setGenerationProgress({ current: 0, total: 0 })
+    }
+  }
+
+  const handleDelete = async (scriptId: string) => {
     if (!confirm('Are you sure you want to delete this script? This action cannot be undone.')) {
       return
     }
 
     try {
-      const savedProjects = localStorage.getItem('projects')
-      if (savedProjects) {
-        const projects = JSON.parse(savedProjects)
-        const projectIndex = projects.findIndex((p: any) => p.id === params.id)
+      const { deleteScript } = await import('@/lib/db/scripts')
+      await deleteScript(scriptId)
 
-        if (projectIndex !== -1) {
-          projects[projectIndex].scripts = projects[projectIndex].scripts.filter(
-            (_: any, idx: number) => idx !== scriptIndex
-          )
-          localStorage.setItem('projects', JSON.stringify(projects))
-          loadProject() // Reload to update UI
-          alert('Script deleted successfully')
-        }
-      }
+      // Reload scripts from database
+      const updatedScripts = await getScriptsByProjectId(params.id as string)
+      setScripts(updatedScripts)
+
+      alert('Script deleted successfully')
     } catch (err) {
       console.error('Error deleting script:', err)
       alert('Failed to delete script')
@@ -69,28 +198,28 @@ export default function ScriptsListPage() {
 
   const handleExport = (script: any) => {
     const exportText = `
-SCRIPT: ${script.topicTitle || 'Untitled'}
-Reading Time: ${script.readingTime || 'N/A'} seconds
-Created: ${script.createdAt ? new Date(script.createdAt).toLocaleDateString() : 'N/A'}
+SCRIPT: ${script.hook || 'Untitled'}
+Reading Time: ${script.reading_time || 'N/A'} seconds
+Created: ${script.created_at ? new Date(script.created_at).toLocaleDateString() : 'N/A'}
 
 HOOK:
 ${script.hook || 'N/A'}
 
 FULL SCRIPT:
-${script.content || script.fullScript || 'No content available'}
+${script.content || 'No content available'}
 
 DELIVERY NOTES:
-${typeof script.deliveryNotes === 'object'
-  ? JSON.stringify(script.deliveryNotes, null, 2)
-  : script.deliveryNotes || 'N/A'
+${typeof script.delivery_notes === 'object'
+  ? JSON.stringify(script.delivery_notes, null, 2)
+  : script.delivery_notes || 'N/A'
 }
 
 VISUAL CUES:
-${Array.isArray(script.visualCues)
-  ? script.visualCues.join('\n')
-  : typeof script.visualCues === 'object'
-    ? JSON.stringify(script.visualCues, null, 2)
-    : script.visualCues || 'N/A'
+${Array.isArray(script.visual_cues)
+  ? script.visual_cues.join('\n')
+  : typeof script.visual_cues === 'object'
+    ? JSON.stringify(script.visual_cues, null, 2)
+    : script.visual_cues || 'N/A'
 }
 `.trim()
 
@@ -115,14 +244,13 @@ ${Array.isArray(script.visualCues)
         const query = searchQuery.toLowerCase()
         const matchesSearch =
           (script.hook || '').toLowerCase().includes(query) ||
-          (script.content || '').toLowerCase().includes(query) ||
-          (script.topicTitle || '').toLowerCase().includes(query)
+          (script.content || '').toLowerCase().includes(query)
         if (!matchesSearch) return false
       }
 
       // Filter by verification status
       if (filterStatus !== 'all') {
-        const status = script.verificationStatus || 'needs_review'
+        const status = script.verification_status || 'needs_review'
         if (status !== filterStatus) return false
       }
 
@@ -134,16 +262,16 @@ ${Array.isArray(script.visualCues)
 
       switch (sortField) {
         case 'createdAt':
-          aVal = new Date(a.createdAt || 0).getTime()
-          bVal = new Date(b.createdAt || 0).getTime()
+          aVal = new Date(a.created_at || 0).getTime()
+          bVal = new Date(b.created_at || 0).getTime()
           break
         case 'readingTime':
-          aVal = a.readingTime || 0
-          bVal = b.readingTime || 0
+          aVal = a.reading_time || 0
+          bVal = b.reading_time || 0
           break
         case 'title':
-          aVal = (a.topicTitle || a.hook || '').toLowerCase()
-          bVal = (b.topicTitle || b.hook || '').toLowerCase()
+          aVal = (a.hook || '').toLowerCase()
+          bVal = (b.hook || '').toLowerCase()
           break
         default:
           return 0
@@ -157,25 +285,27 @@ ${Array.isArray(script.visualCues)
     })
 
   const getScriptTitle = (script: any, index: number) => {
-    if (script.topicTitle) return script.topicTitle
     if (script.hook) return script.hook.substring(0, 50) + (script.hook.length > 50 ? '...' : '')
     return `Script #${index + 1}`
   }
 
   const getScriptTone = (script: any) => {
-    if (script.tone) return script.tone
-    if (script.deliveryNotes?.tone) return script.deliveryNotes.tone
+    if (script.delivery_notes?.tone) return script.delivery_notes.tone
     return 'N/A'
   }
 
-  if (loading) {
+  if (loading || generating) {
     return (
       <div className="min-h-screen bg-gray-50">
         <Navigation />
         <div className="flex items-center justify-center min-h-[60vh]">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading scripts...</p>
+            <p className="text-gray-600">
+              {generating
+                ? `Generating scripts... (${generationProgress.current}/${generationProgress.total})`
+                : 'Loading scripts...'}
+            </p>
           </div>
         </div>
       </div>
@@ -314,7 +444,7 @@ ${Array.isArray(script.visualCues)
                   <tbody className="bg-white divide-y divide-gray-200">
                     {filteredAndSortedScripts.length > 0 ? (
                       filteredAndSortedScripts.map((script) => (
-                        <tr key={script.id || script.originalIndex} className="hover:bg-gray-50">
+                        <tr key={script.id} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm font-medium text-gray-900">
                               {getScriptTitle(script, script.originalIndex)}
@@ -327,7 +457,7 @@ ${Array.isArray(script.visualCues)
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm text-gray-900">
-                              {script.readingTime || 60}s
+                              {script.reading_time || 60}s
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
@@ -337,23 +467,23 @@ ${Array.isArray(script.visualCues)
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`text-xs px-2 py-1 rounded ${
-                              script.verificationStatus === 'verified'
+                              script.verification_status === 'verified'
                                 ? 'bg-green-100 text-green-700'
                                 : 'bg-yellow-100 text-yellow-700'
                             }`}>
-                              {script.verificationStatus === 'verified' ? 'Verified' : 'Needs Review'}
+                              {script.verification_status === 'verified' ? 'Verified' : 'Needs Review'}
                             </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                             <div className="flex items-center justify-end gap-2">
                               <Link
-                                href={`/dashboard/project/${params.id}/scripts/${script.originalIndex}`}
+                                href={`/dashboard/project/${params.id}/scripts/${script.id}`}
                                 className="text-blue-600 hover:text-blue-900"
                               >
                                 View
                               </Link>
                               <Link
-                                href={`/dashboard/project/${params.id}/scripts/${script.originalIndex}?edit=true`}
+                                href={`/dashboard/project/${params.id}/scripts/${script.id}?edit=true`}
                                 className="text-green-600 hover:text-green-900"
                               >
                                 Edit
@@ -365,7 +495,7 @@ ${Array.isArray(script.visualCues)
                                 Export
                               </button>
                               <button
-                                onClick={() => handleDelete(script.id, script.originalIndex)}
+                                onClick={() => handleDelete(script.id)}
                                 className="text-red-600 hover:text-red-900"
                               >
                                 Delete
