@@ -2,13 +2,19 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useAuth, useUser } from '@clerk/nextjs'
+import { getCurrentUser } from '@/lib/db/users'
+import { createUserProfile } from '@/lib/db/profiles'
 
 type OnboardingStep = 'profile' | 'location' | 'style' | 'boundaries' | 'complete'
 
 export default function OnboardingPage() {
   const router = useRouter()
+  const { userId: clerkUserId } = useAuth()
+  const { user: clerkUser } = useUser()
   const [currentStep, setCurrentStep] = useState<OnboardingStep>('profile')
   const [isGeneratingRegion, setIsGeneratingRegion] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [regionalConfig, setRegionalConfig] = useState<any>(null)
   const [formData, setFormData] = useState({
   profileName: '',
@@ -78,34 +84,63 @@ export default function OnboardingPage() {
     }
   }
 
- const handleComplete = () => {
-  const profileId = Date.now().toString()
-  
-  // Use custom values if "Other" was selected
-  const finalFormData = {
-    ...formData,
-    country: formData.country === 'Other' ? formData.customCountry : formData.country,
-    primaryTone: formData.primaryTone === 'Other' ? formData.customPrimaryTone : formData.primaryTone,
-    secondaryTone: formData.secondaryTone === 'Other' ? formData.customSecondaryTone : formData.secondaryTone,
-    accentTone: formData.accentTone === 'Other' ? formData.customAccentTone : formData.accentTone,
+ const handleComplete = async () => {
+  if (!clerkUserId) {
+    alert('You must be signed in to complete onboarding')
+    router.push('/sign-in')
+    return
   }
-  
-  const newProfile = {
-    ...finalFormData,
-    id: profileId,
-    createdAt: new Date().toISOString()
+
+  setIsSaving(true)
+
+  try {
+    // Get the user's database record
+    const dbUser = await getCurrentUser(clerkUserId)
+
+    if (!dbUser) {
+      alert('User record not found. Please try signing in again.')
+      router.push('/sign-in')
+      return
+    }
+
+    // Use custom values if "Other" was selected
+    const country = formData.country === 'Other' ? formData.customCountry : formData.country
+    const primaryTone = formData.primaryTone === 'Other' ? formData.customPrimaryTone : formData.primaryTone
+    const secondaryTone = formData.secondaryTone === 'Other' ? formData.customSecondaryTone : formData.secondaryTone
+    const accentTone = formData.accentTone === 'Other' ? formData.customAccentTone : formData.accentTone
+
+    // Create the user profile in database
+    const profile = await createUserProfile(dbUser.id, {
+      profile_name: formData.profileName || `${formData.name}'s Profile`,
+      channel_name: formData.channelName || null,
+      niche: formData.niche || null,
+      unique_angle: formData.uniqueAngle || null,
+      primary_tone: primaryTone || null,
+      secondary_tone: secondaryTone || null,
+      accent_tone: accentTone || null,
+      catchphrases: formData.catchphrases.filter(p => p.trim() !== ''),
+      wont_cover: formData.wontCover.filter(t => t.trim() !== ''),
+      privacy_limits: formData.privacyLimits.filter(p => p.trim() !== ''),
+      ethics_agreement: formData.ethicsAgreement,
+    })
+
+    // If regional config was generated, save it
+    if (regionalConfig) {
+      // TODO: Save regional config to database
+      // We'll implement this in the next step
+      console.log('Regional config to save:', regionalConfig)
+    }
+
+    console.log('✅ Profile created successfully:', profile.id)
+
+    // Redirect to dashboard
+    router.push('/dashboard')
+  } catch (error) {
+    console.error('Error saving profile:', error)
+    alert('Failed to save profile. Please try again.')
+  } finally {
+    setIsSaving(false)
   }
-  
-  // Save to profiles array
-  const existingProfiles = JSON.parse(localStorage.getItem('userProfiles') || '[]')
-  existingProfiles.push(newProfile)
-  localStorage.setItem('userProfiles', JSON.stringify(existingProfiles))
-  
-  // Set as active profile
-  localStorage.setItem('activeProfileId', profileId)
-  localStorage.setItem('userProfile', JSON.stringify(newProfile))
-  
-  router.push('/dashboard')
 }
 
   const updateFormData = (field: string, value: any) => {
@@ -580,9 +615,10 @@ export default function OnboardingPage() {
             {currentStep === 'complete' && (
               <button
                 onClick={handleComplete}
-                className="ml-auto px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
+                disabled={isSaving}
+                className="ml-auto px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
-                Go to Dashboard →
+                {isSaving ? 'Saving Profile...' : 'Go to Dashboard →'}
               </button>
             )}
           </div>
