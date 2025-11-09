@@ -51,13 +51,27 @@ export default function ProjectDetailPage() {
   }
 
   const handleGenerateScripts = () => {
+    console.log('🎬 Generate Scripts button clicked!')
+    console.log('📊 Selected topics count:', selectedTopics.size)
+
     if (selectedTopics.size === 0) {
+      console.log('❌ No topics selected - showing alert')
       alert('Please select at least one topic to generate scripts')
       return
     }
 
+    const topicIdsArray = Array.from(selectedTopics)
+    console.log('✅ Topic IDs being saved:', topicIdsArray)
+
     // Save selected topic IDs to localStorage for the scripts page
-    localStorage.setItem('selectedTopicIds', JSON.stringify(Array.from(selectedTopics)))
+    localStorage.setItem('selectedTopicIds', JSON.stringify(topicIdsArray))
+    console.log('💾 Saved to localStorage as "selectedTopicIds"')
+
+    // Verify it was saved
+    const verification = localStorage.getItem('selectedTopicIds')
+    console.log('✔️ Verification - localStorage contains:', verification)
+
+    console.log(`🚀 Navigating to /dashboard/project/${project.id}/scripts`)
     router.push(`/dashboard/project/${project.id}/scripts`)
   }
 
