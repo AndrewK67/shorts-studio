@@ -26,8 +26,11 @@ export default function ScriptsListPage() {
   }, [params.id])
 
   const loadProjectAndGenerateIfNeeded = async () => {
+    console.log('🔍 Scripts page: loadProjectAndGenerateIfNeeded called')
     try {
       const savedProjects = localStorage.getItem('projects')
+      console.log('📦 Loaded projects from localStorage:', savedProjects ? 'Found' : 'Not found')
+
       if (!savedProjects) {
         setLoading(false)
         return
@@ -35,6 +38,7 @@ export default function ScriptsListPage() {
 
       const projects = JSON.parse(savedProjects)
       const currentProject = projects.find((p: any) => p.id === params.id)
+      console.log('🎯 Current project:', currentProject ? currentProject.name : 'Not found')
 
       if (!currentProject) {
         setLoading(false)
@@ -47,42 +51,62 @@ export default function ScriptsListPage() {
 
       // Check if we need to generate scripts
       const selectedTopicIdsStr = localStorage.getItem('selectedTopicIds')
+      console.log('🔍 Checking for selectedTopicIds in localStorage:', selectedTopicIdsStr)
+
       if (selectedTopicIdsStr) {
         const selectedTopicIds = JSON.parse(selectedTopicIdsStr)
+        console.log('✅ Found selected topic IDs:', selectedTopicIds)
 
         if (selectedTopicIds.length > 0) {
+          console.log(`🚀 Starting script generation for ${selectedTopicIds.length} topics`)
+
           // Clear the flag immediately to prevent re-triggering
           localStorage.removeItem('selectedTopicIds')
+          console.log('🗑️ Cleared selectedTopicIds from localStorage')
 
           // Generate scripts
           await generateScriptsForTopics(currentProject, selectedTopicIds)
+        } else {
+          console.log('⚠️ selectedTopicIds array is empty')
         }
+      } else {
+        console.log('ℹ️ No selectedTopicIds found - not generating scripts')
       }
     } catch (err) {
-      console.error('Error loading project:', err)
+      console.error('❌ Error in loadProjectAndGenerateIfNeeded:', err)
       setLoading(false)
     }
   }
 
   const generateScriptsForTopics = async (proj: any, topicIds: string[]) => {
+    console.log('🎬 generateScriptsForTopics started')
+    console.log('📋 Project:', proj.name)
+    console.log('🎯 Topic IDs to generate:', topicIds)
+
     setGenerating(true)
     setGenerationProgress({ current: 0, total: topicIds.length })
 
     try {
       // Load user profile
       const userProfileStr = localStorage.getItem('userProfile')
+      console.log('👤 User profile from localStorage:', userProfileStr ? 'Found' : 'NOT FOUND')
+
       if (!userProfileStr) {
+        console.error('❌ No user profile found - redirecting to onboarding')
         alert('Please complete onboarding first to generate scripts')
         router.push('/onboarding')
         return
       }
 
       const userProfile = JSON.parse(userProfileStr)
+      console.log('✅ User profile loaded:', userProfile.name)
 
       // Find the selected topics
       const selectedTopics = proj.topics.filter((t: any) => topicIds.includes(t.id))
+      console.log(`🔍 Found ${selectedTopics.length} topics from ${topicIds.length} IDs`)
 
       if (selectedTopics.length === 0) {
+        console.error('❌ No matching topics found')
         alert('Selected topics not found in project')
         setGenerating(false)
         return
@@ -95,9 +119,10 @@ export default function ScriptsListPage() {
         const topic = selectedTopics[i]
         setGenerationProgress({ current: i + 1, total: selectedTopics.length })
 
-        console.log(`Generating script ${i + 1}/${selectedTopics.length} for topic: ${topic.title}`)
+        console.log(`\n📝 Generating script ${i + 1}/${selectedTopics.length} for topic: "${topic.title}"`)
 
         try {
+          console.log('🌐 Calling API /api/scripts/generate...')
           const response = await fetch('/api/scripts/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -108,7 +133,9 @@ export default function ScriptsListPage() {
             })
           })
 
+          console.log('📡 API response status:', response.status)
           const data = await response.json()
+          console.log('📦 API response data:', data)
 
           if (data.success && data.script) {
             // Add topic title to script
@@ -118,19 +145,20 @@ export default function ScriptsListPage() {
               topicId: topic.id
             }
             newScripts.push(scriptWithTopicTitle)
-            console.log(`✅ Generated script for: ${topic.title}`)
+            console.log(`✅ Successfully generated script for: "${topic.title}"`)
           } else {
-            console.error(`Failed to generate script for ${topic.title}:`, data.error)
+            console.error(`❌ Failed to generate script for "${topic.title}":`, data.error)
             alert(`Failed to generate script for "${topic.title}": ${data.error || 'Unknown error'}`)
           }
         } catch (error) {
-          console.error(`Error generating script for ${topic.title}:`, error)
+          console.error(`❌ Error generating script for "${topic.title}":`, error)
           alert(`Error generating script for "${topic.title}"`)
         }
       }
 
       // Save all new scripts to project
       if (newScripts.length > 0) {
+        console.log(`💾 Saving ${newScripts.length} new scripts to project...`)
         const savedProjects = localStorage.getItem('projects')
         if (savedProjects) {
           const projects = JSON.parse(savedProjects)
@@ -147,9 +175,11 @@ export default function ScriptsListPage() {
             setProject(projects[projectIndex])
             setScripts(projects[projectIndex].scripts || [])
 
-            console.log(`✅ Saved ${newScripts.length} new scripts to project`)
+            console.log(`✅ Successfully saved ${newScripts.length} new scripts to project`)
           }
         }
+      } else {
+        console.log('⚠️ No scripts were generated')
       }
 
       setGenerating(false)
@@ -159,7 +189,7 @@ export default function ScriptsListPage() {
       }
 
     } catch (error) {
-      console.error('Error in generateScriptsForTopics:', error)
+      console.error('❌ Error in generateScriptsForTopics:', error)
       alert('Failed to generate scripts. Please try again.')
       setGenerating(false)
     }
