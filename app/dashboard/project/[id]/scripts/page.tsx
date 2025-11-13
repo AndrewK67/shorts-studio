@@ -5,168 +5,206 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Navigation from '../../../../../components/Navigation'
 
-type SortField = 'createdAt' | 'readingTime' | 'title'
+type SortField = 'createdAt' | 'readingTime' | 'verificationStatus'
 type SortOrder = 'asc' | 'desc'
+type ProductionMode = 'traditional' | 'ai-voice-stock' | 'fully-ai'
 
-export default function ScriptsListPage() {
+export default function ScriptsPage() {
   const params = useParams()
   const router = useRouter()
   const [project, setProject] = useState<any>(null)
   const [scripts, setScripts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
+  const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 })
+  const [productionMode, setProductionMode] = useState<ProductionMode>('ai-voice-stock')
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Load production mode from localStorage
+  useEffect(() => {
+    const savedMode = localStorage.getItem('productionMode') as ProductionMode | null
+    if (savedMode) {
+      setProductionMode(savedMode)
+      console.log('📋 Loaded production mode from localStorage:', savedMode)
+    }
+  }, [])
   const [sortField, setSortField] = useState<SortField>('createdAt')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [filterStatus, setFilterStatus] = useState<'all' | 'needs_review' | 'verified'>('all')
 
   useEffect(() => {
-    loadProject()
+    loadProjectAndGenerateIfNeeded()
   }, [params.id])
 
-  const loadProject = () => {
+  const loadProjectAndGenerateIfNeeded = async () => {
+    console.log('🔍 Scripts page: loadProjectAndGenerateIfNeeded called')
+    
     try {
+      const savedProjects = localStorage.getItem('projects')
+      console.log('📦 Loaded projects from localStorage:', savedProjects ? 'Found' : 'Not found')
+      
+      if (!savedProjects) {
+        setLoading(false)
+        return
+      }
+
+      const projects = JSON.parse(savedProjects)
+      const currentProject = projects.find((p: any) => p.id === params.id)
+      console.log('🎯 Current project:', currentProject ? currentProject.name : 'Not found')
+
+      if (!currentProject) {
+        setLoading(false)
+        return
+      }
+
+      setProject(currentProject)
+      setScripts(currentProject.scripts || [])
+      setLoading(false)
+
+      const selectedTopicIds = localStorage.getItem('selectedTopicIds')
+      console.log('🔍 Checking for selectedTopicIds in localStorage:', selectedTopicIds)
+
+      if (selectedTopicIds) {
+        const topicIds = JSON.parse(selectedTopicIds)
+        console.log('✅ Found selected topic IDs:', topicIds)
+        
+        localStorage.removeItem('selectedTopicIds')
+        console.log('🗑️ Cleared selectedTopicIds from localStorage')
+        
+        await generateScriptsForTopics(currentProject, topicIds)
+      } else {
+        console.log('ℹ️ No selectedTopicIds found in localStorage')
+      }
+    } catch (err) {
+      console.error('❌ Error loading project:', err)
+      setLoading(false)
+    }
+  }
+
+  const generateScriptsForTopics = async (proj: any, topicIds: string[]) => {
+    console.log('🚀 Starting script generation for', topicIds.length, 'topics')
+    console.log('🎬 Production mode:', productionMode)
+    setGenerating(true)
+    setGenerationProgress({ current: 0, total: topicIds.length })
+
+    try {
+      const userProfileStr = localStorage.getItem('userProfile')
+      console.log('👤 User profile from localStorage:', userProfileStr ? 'Found' : 'Not found')
+      
+      if (!userProfileStr) {
+        console.log('❌ No user profile found - redirecting to onboarding')
+        alert('Please complete onboarding first to generate scripts')
+        router.push('/onboarding')
+        return
+      }
+
+      const userProfile = JSON.parse(userProfileStr)
+      console.log('✅ User profile loaded:', userProfile.name)
+
+      const selectedTopics = proj.topics.filter((t: any) => topicIds.includes(t.id))
+      console.log('📝 Selected topics to generate scripts for:', selectedTopics.length)
+
+      if (selectedTopics.length === 0) {
+        console.log('❌ No matching topics found')
+        alert('Selected topics not found in project')
+        setGenerating(false)
+        return
+      }
+
+      const newScripts = []
+
+      for (let i = 0; i < selectedTopics.length; i++) {
+        const topic = selectedTopics[i]
+        console.log(`\n🌐 Calling API for topic ${i + 1}/${selectedTopics.length}:`, topic.title)
+        console.log('🎬 Using production mode:', productionMode)
+        
+        setGenerationProgress({ current: i + 1, total: selectedTopics.length })
+
+        try {
+          const response = await fetch('/api/scripts/generate', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              topic,
+              userProfile,
+              productionMode,
+            }),
+          })
+
+          console.log('📡 API response status:', response.status)
+
+          if (!response.ok) {
+            const errorText = await response.text()
+            console.error('❌ API error:', errorText)
+            throw new Error(`Failed to generate script: ${response.status}`)
+          }
+
+          const data = await response.json()
+          console.log('✅ Script generated successfully:', data.script?.hook?.substring(0, 50) + '...')
+          console.log('🎬 Production mode:', data.script?.productionMode)
+          
+          newScripts.push(data.script)
+        } catch (error) {
+          console.error(`❌ Error generating script for topic ${i + 1}:`, error)
+        }
+      }
+
+      console.log(`\n✅ Generated ${newScripts.length} scripts total`)
+
+      const updatedProject = {
+        ...proj,
+        scripts: [...(proj.scripts || []), ...newScripts],
+      }
+
       const savedProjects = localStorage.getItem('projects')
       if (savedProjects) {
         const projects = JSON.parse(savedProjects)
-        const currentProject = projects.find((p: any) => p.id === params.id)
-        if (currentProject) {
-          setProject(currentProject)
-          setScripts(currentProject.scripts || [])
-        }
+        const updatedProjects = projects.map((p: any) =>
+          p.id === proj.id ? updatedProject : p
+        )
+        localStorage.setItem('projects', JSON.stringify(updatedProjects))
+        console.log('💾 Saved updated project to localStorage')
       }
-      setLoading(false)
-    } catch (err) {
-      console.error('Error loading project:', err)
-      setLoading(false)
+
+      setProject(updatedProject)
+      setScripts(updatedProject.scripts)
+      setGenerating(false)
+      console.log('🎉 Script generation complete!')
+
+    } catch (error) {
+      console.error('❌ Error in generateScriptsForTopics:', error)
+      alert('Failed to generate scripts. Please try again.')
+      setGenerating(false)
     }
   }
 
-  const handleDelete = (scriptId: string, scriptIndex: number) => {
-    if (!confirm('Are you sure you want to delete this script? This action cannot be undone.')) {
-      return
-    }
-
-    try {
-      const savedProjects = localStorage.getItem('projects')
-      if (savedProjects) {
-        const projects = JSON.parse(savedProjects)
-        const projectIndex = projects.findIndex((p: any) => p.id === params.id)
-
-        if (projectIndex !== -1) {
-          projects[projectIndex].scripts = projects[projectIndex].scripts.filter(
-            (_: any, idx: number) => idx !== scriptIndex
-          )
-          localStorage.setItem('projects', JSON.stringify(projects))
-          loadProject() // Reload to update UI
-          alert('Script deleted successfully')
-        }
-      }
-    } catch (err) {
-      console.error('Error deleting script:', err)
-      alert('Failed to delete script')
-    }
-  }
-
-  const handleExport = (script: any) => {
-    const exportText = `
-SCRIPT: ${script.topicTitle || 'Untitled'}
-Reading Time: ${script.readingTime || 'N/A'} seconds
-Created: ${script.createdAt ? new Date(script.createdAt).toLocaleDateString() : 'N/A'}
-
-HOOK:
-${script.hook || 'N/A'}
-
-FULL SCRIPT:
-${script.content || script.fullScript || 'No content available'}
-
-DELIVERY NOTES:
-${typeof script.deliveryNotes === 'object'
-  ? JSON.stringify(script.deliveryNotes, null, 2)
-  : script.deliveryNotes || 'N/A'
-}
-
-VISUAL CUES:
-${Array.isArray(script.visualCues)
-  ? script.visualCues.join('\n')
-  : typeof script.visualCues === 'object'
-    ? JSON.stringify(script.visualCues, null, 2)
-    : script.visualCues || 'N/A'
-}
-`.trim()
-
-    // Create download
-    const blob = new Blob([exportText], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `script-${script.id || Date.now()}.txt`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  }
-
-  // Filter and sort scripts
   const filteredAndSortedScripts = scripts
-    .map((script, index) => ({ ...script, originalIndex: index }))
-    .filter(script => {
-      // Filter by search query
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase()
-        const matchesSearch =
-          (script.hook || '').toLowerCase().includes(query) ||
-          (script.content || '').toLowerCase().includes(query) ||
-          (script.topicTitle || '').toLowerCase().includes(query)
-        if (!matchesSearch) return false
-      }
+    .filter((script) => {
+      const matchesSearch =
+        script.topicTitle?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        script.hook?.toLowerCase().includes(searchQuery.toLowerCase())
+      
+      const matchesFilter =
+        filterStatus === 'all' ||
+        script.verificationStatus === filterStatus
 
-      // Filter by verification status
-      if (filterStatus !== 'all') {
-        const status = script.verificationStatus || 'needs_review'
-        if (status !== filterStatus) return false
-      }
-
-      return true
+      return matchesSearch && matchesFilter
     })
     .sort((a, b) => {
-      let aVal: any
-      let bVal: any
+      let comparison = 0
 
-      switch (sortField) {
-        case 'createdAt':
-          aVal = new Date(a.createdAt || 0).getTime()
-          bVal = new Date(b.createdAt || 0).getTime()
-          break
-        case 'readingTime':
-          aVal = a.readingTime || 0
-          bVal = b.readingTime || 0
-          break
-        case 'title':
-          aVal = (a.topicTitle || a.hook || '').toLowerCase()
-          bVal = (b.topicTitle || b.hook || '').toLowerCase()
-          break
-        default:
-          return 0
+      if (sortField === 'createdAt') {
+        comparison = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      } else if (sortField === 'readingTime') {
+        comparison = (a.readingTime || 0) - (b.readingTime || 0)
+      } else if (sortField === 'verificationStatus') {
+        comparison = (a.verificationStatus || '').localeCompare(b.verificationStatus || '')
       }
 
-      if (sortOrder === 'asc') {
-        return aVal > bVal ? 1 : -1
-      } else {
-        return aVal < bVal ? 1 : -1
-      }
+      return sortOrder === 'asc' ? comparison : -comparison
     })
-
-  const getScriptTitle = (script: any, index: number) => {
-    if (script.topicTitle) return script.topicTitle
-    if (script.hook) return script.hook.substring(0, 50) + (script.hook.length > 50 ? '...' : '')
-    return `Script #${index + 1}`
-  }
-
-  const getScriptTone = (script: any) => {
-    if (script.tone) return script.tone
-    if (script.deliveryNotes?.tone) return script.deliveryNotes.tone
-    return 'N/A'
-  }
 
   if (loading) {
     return (
@@ -182,6 +220,32 @@ ${Array.isArray(script.visualCues)
     )
   }
 
+  if (generating) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navigation />
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center max-w-md">
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-gray-200 border-t-blue-600 mx-auto mb-6"></div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Generating Scripts...</h2>
+            <p className="text-gray-600 mb-2">
+              Creating script {generationProgress.current} of {generationProgress.total}
+            </p>
+            <p className="text-sm text-gray-500 mb-4">
+              Mode: {productionMode === 'ai-voice-stock' ? 'AI Voice + Stock Footage' : productionMode === 'fully-ai' ? 'Fully AI Generated' : 'Traditional Filming'}
+            </p>
+            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+              <div
+                className="bg-blue-600 h-3 rounded-full transition-all duration-300"
+                style={{ width: `${(generationProgress.current / generationProgress.total) * 100}%` }}
+              ></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (!project) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -190,7 +254,7 @@ ${Array.isArray(script.visualCues)
           <div className="text-center">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Project Not Found</h2>
             <Link href="/dashboard" className="text-blue-600 hover:text-blue-700">
-              Back to Dashboard
+              ← Back to Dashboard
             </Link>
           </div>
         </div>
@@ -213,9 +277,7 @@ ${Array.isArray(script.visualCues)
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Scripts</h1>
-              <p className="text-sm text-gray-600 mt-1">
-                {scripts.length} script{scripts.length !== 1 ? 's' : ''} total
-              </p>
+              <p className="text-sm text-gray-600 mt-1">{scripts.length} scripts total</p>
             </div>
           </div>
         </div>
@@ -224,182 +286,97 @@ ${Array.isArray(script.visualCues)
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {scripts.length > 0 ? (
           <>
-            {/* Filters and Search */}
             <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Search */}
-                <div className="md:col-span-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Search
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Search scripts..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
+              <div className="flex flex-wrap gap-4 items-center">
+                <input
+                  type="text"
+                  placeholder="Search scripts..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="flex-1 min-w-[200px] px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
 
-                {/* Sort By */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Sort By
-                  </label>
-                  <select
-                    value={sortField}
-                    onChange={(e) => setSortField(e.target.value as SortField)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="createdAt">Date Created</option>
-                    <option value="readingTime">Reading Time</option>
-                    <option value="title">Title</option>
-                  </select>
-                </div>
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value as any)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="all">All Status</option>
+                  <option value="needs_review">Needs Review</option>
+                  <option value="verified">Verified</option>
+                </select>
 
-                {/* Filter Status */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Fact-Check Status
-                  </label>
-                  <select
-                    value={filterStatus}
-                    onChange={(e) => setFilterStatus(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="all">All Scripts</option>
-                    <option value="needs_review">Needs Review</option>
-                    <option value="verified">Verified</option>
-                  </select>
-                </div>
-              </div>
+                <select
+                  value={sortField}
+                  onChange={(e) => setSortField(e.target.value as SortField)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="createdAt">Sort by Date</option>
+                  <option value="readingTime">Sort by Length</option>
+                  <option value="verificationStatus">Sort by Status</option>
+                </select>
 
-              {/* Sort Order Toggle */}
-              <div className="mt-3">
                 <button
                   onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                  className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
-                  {sortOrder === 'asc' ? '↑ Ascending' : '↓ Descending'}
+                  {sortOrder === 'asc' ? '↑' : '↓'}
                 </button>
               </div>
             </div>
 
-            {/* Scripts Table */}
-            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Title
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Hook Preview
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Reading Time
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Tone
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {filteredAndSortedScripts.length > 0 ? (
-                      filteredAndSortedScripts.map((script) => (
-                        <tr key={script.id || script.originalIndex} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">
-                              {getScriptTitle(script, script.originalIndex)}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="text-sm text-gray-600 max-w-xs truncate italic">
-                              "{script.hook ? script.hook.substring(0, 50) : 'No hook'}..."
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900">
-                              {script.readingTime || 60}s
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded">
-                              {getScriptTone(script)}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`text-xs px-2 py-1 rounded ${
-                              script.verificationStatus === 'verified'
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-yellow-100 text-yellow-700'
-                            }`}>
-                              {script.verificationStatus === 'verified' ? 'Verified' : 'Needs Review'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            <div className="flex items-center justify-end gap-2">
-                              <Link
-                                href={`/dashboard/project/${params.id}/scripts/${script.originalIndex}`}
-                                className="text-blue-600 hover:text-blue-900"
-                              >
-                                View
-                              </Link>
-                              <Link
-                                href={`/dashboard/project/${params.id}/scripts/${script.originalIndex}?edit=true`}
-                                className="text-green-600 hover:text-green-900"
-                              >
-                                Edit
-                              </Link>
-                              <button
-                                onClick={() => handleExport(script)}
-                                className="text-purple-600 hover:text-purple-900"
-                              >
-                                Export
-                              </button>
-                              <button
-                                onClick={() => handleDelete(script.id, script.originalIndex)}
-                                className="text-red-600 hover:text-red-900"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center">
-                          <p className="text-gray-500">No scripts match your filters</p>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Results Count */}
-            <div className="mt-4 text-sm text-gray-600 text-center">
-              Showing {filteredAndSortedScripts.length} of {scripts.length} scripts
+            <div className="space-y-4">
+              {filteredAndSortedScripts.map((script: any, index: number) => (
+                <Link
+                  key={script.id || index}
+                  href={`/dashboard/project/${project.id}/scripts/${index}`}
+                  className="block bg-white rounded-lg border border-gray-200 p-6 hover:border-blue-300 hover:shadow-md transition-all"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          {script.topicTitle || `Script #${index + 1}`}
+                        </h3>
+                        {script.productionMode && (
+                          <span className="text-xs px-2 py-1 bg-indigo-100 text-indigo-700 rounded">
+                            {script.productionMode === 'ai-voice-stock' ? '🎙️ AI Voice + Stock' : script.productionMode === 'fully-ai' ? '🤖 Fully AI' : '🎥 Traditional'}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-600 italic mb-3">
+                        "{script.hook || 'No hook'}"
+                      </p>
+                      {script.content && (
+                        <p className="text-sm text-gray-500 line-clamp-2">
+                          {script.content.substring(0, 150)}...
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end gap-2 ml-4">
+                      <span className="text-xs px-3 py-1 bg-purple-100 text-purple-700 rounded-full font-medium">
+                        {script.readingTime || 60}s
+                      </span>
+                      <span
+                        className={`text-xs px-3 py-1 rounded-full font-medium ${
+                          script.verificationStatus === 'verified'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-yellow-100 text-yellow-700'
+                        }`}
+                      >
+                        {script.verificationStatus === 'verified' ? 'Verified' : 'Needs Review'}
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              ))}
             </div>
           </>
         ) : (
           <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
-            <div className="text-6xl mb-4">✍️</div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              No scripts yet
-            </h3>
-            <p className="text-gray-600 mb-6">
-              Generate scripts from your topics to get started
-            </p>
+            <div className="text-6xl mb-4">🚀</div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">No scripts yet</h3>
+            <p className="text-gray-600 mb-6">Generate scripts from your topics to get started</p>
             <Link
               href={`/dashboard/project/${project.id}`}
               className="inline-block px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
