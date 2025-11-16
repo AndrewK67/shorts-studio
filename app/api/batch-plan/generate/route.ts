@@ -6,20 +6,66 @@ const anthropic = new Anthropic({
 })
 
 export async function POST(request: NextRequest) {
+  console.log('🔥 Batch plan API called')
+  
   try {
     const body = await request.json()
+    console.log('📊 Request body keys:', Object.keys(body))
+    
     const { scripts, profile, filmingHours = 8 } = body
 
-    if (!scripts || !profile) {
+    // Detailed validation with specific error messages
+    if (!scripts) {
+      console.error('❌ Missing scripts field')
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        { 
+          error: 'Missing required field: scripts',
+          hint: 'Scripts should be an array of script objects'
+        },
         { status: 400 }
       )
     }
 
+    if (!profile) {
+      console.error('❌ Missing profile field')
+      return NextResponse.json(
+        { 
+          error: 'Missing required field: profile',
+          hint: 'Profile should contain: name, niche, primaryTone, location, country'
+        },
+        { status: 400 }
+      )
+    }
+
+    if (!Array.isArray(scripts)) {
+      console.error('❌ Scripts is not an array')
+      return NextResponse.json(
+        { 
+          error: 'Invalid scripts format',
+          hint: 'Scripts must be an array'
+        },
+        { status: 400 }
+      )
+    }
+
+    if (scripts.length === 0) {
+      console.error('❌ Scripts array is empty')
+      return NextResponse.json(
+        { 
+          error: 'No scripts provided',
+          hint: 'Please select at least one script'
+        },
+        { status: 400 }
+      )
+    }
+
+    console.log('✅ Validation passed')
+    console.log(`📊 Processing ${scripts.length} scripts for ${profile.name}`)
+
+    // Transform scripts for the prompt
     const scriptsInfo = scripts.map((s: any, i: number) => ({
       id: i,
-      title: s.topicTitle,
+      title: s.topicTitle || 'Untitled',
       tone: s.deliveryNotes?.pacing || 'conversational',
       energy: s.deliveryNotes?.energy || 5,
       readingTime: s.readingTime || 60,
@@ -27,18 +73,31 @@ export async function POST(request: NextRequest) {
       lighting: s.visualCues?.lighting || 'natural'
     }))
 
-   const prompt = `You are a production planning expert for YouTube Shorts creators. Create an efficient filming plan for ${scripts.length} video scripts in ${filmingHours} hours.
+    console.log('📝 Transformed script info:', scriptsInfo.length, 'scripts')
+
+    const prompt = `You are a production planning expert for YouTube Shorts creators. Create an efficient filming plan for ${scripts.length} video scripts in ${filmingHours} hours.
 
 CREATOR PROFILE:
 - Name: ${profile.name}
 - Niche: ${profile.niche}
 - Primary Tone: ${profile.primaryTone}
-- Location: ${profile.location}, ${profile.country}
+- Creator Location: ${profile.location}, ${profile.country}
+- Target Audience: ${profile.targetAudience || profile.country}
 
-REGIONAL CONTEXT:
-- Use ${profile.country === 'United Kingdom' ? 'British English' : 'American English'} terminology
-- Currency: ${profile.country === 'United Kingdom' ? 'GBP (£)' : 'USD ($)'}
-${profile.country === 'United Kingdom' ? '- Remember: "holiday" in UK means vacation/trip, not Christmas/seasonal holidays' : ''}
+LANGUAGE & REGIONAL CONTEXT:
+${(profile.languageVariant === 'British English' || 
+  (!profile.languageVariant && (profile.targetAudience === 'United Kingdom' || profile.country === 'United Kingdom'))) ? 
+`- CRITICAL: Use ONLY British English spelling and terminology throughout ALL responses
+- British spellings: colour (not color), favourite (not favorite), organised (not organized), realise (not realize), centre (not center), theatre (not theater), humour (not humor), behaviour (not behavior), practise (verb, not practice), licence (noun, not license), grey (not gray)
+- British terms: "trousers" (not pants), "jumper" (not sweater), "trainers" (not sneakers), "mobile" (not cell phone), "flat" (not apartment), "lift" (not elevator), "holiday" (vacation/trip), "boot" (car trunk), "bonnet" (car hood), "queue" (not line)
+- Currency: GBP (£) - use pounds, never dollars
+- Time: 24-hour format acceptable, or "half past" style
+- Cultural references should be UK-appropriate` : 
+`- Use American English spelling and terminology throughout
+- American spellings: color, favorite, organized, realize, center, theater, humor, behavior
+- American terms: "pants" (not trousers), "sweater" (not jumper), "sneakers" (not trainers), "cell phone" (not mobile), "apartment" (not flat), "elevator" (not lift), "vacation" (not holiday), "trunk/hood" (car parts), "line" (not queue)
+- Currency: USD ($) - use dollars, not pounds
+- Cultural references should be US-appropriate`}
 
 SCRIPTS TO FILM (${scripts.length} total):
 ${JSON.stringify(scriptsInfo, null, 2)}
@@ -122,8 +181,10 @@ Return ONLY valid JSON with this structure:
   }
 }`
 
+    console.log('🤖 Calling Claude API...')
+
     const message = await anthropic.messages.create({
-  model: 'claude-3-haiku-20240307',
+      model: 'claude-sonnet-4-20250514',
       max_tokens: 4000,
       messages: [
         {
@@ -133,17 +194,32 @@ Return ONLY valid JSON with this structure:
       ]
     })
 
+    console.log('✅ Claude API response received')
+
     const responseText = message.content[0].type === 'text' 
       ? message.content[0].text 
       : ''
 
+    console.log('📄 Parsing batch plan JSON...')
+
+    // Extract JSON from code blocks if present
     let jsonText = responseText
     const jsonMatch = responseText.match(/```json\n?([\s\S]*?)\n?```/)
     if (jsonMatch) {
       jsonText = jsonMatch[1]
+      console.log('📋 Extracted JSON from code block')
     }
 
-    const batchPlan = JSON.parse(jsonText)
+    let batchPlan
+    try {
+      batchPlan = JSON.parse(jsonText)
+      console.log('✅ Batch plan parsed successfully')
+      console.log(`📊 Batch plan created: ${batchPlan.clusters?.length || 0} clusters`)
+    } catch (parseError) {
+      console.error('❌ JSON parse error:', parseError)
+      console.error('📄 Response text:', responseText.substring(0, 500))
+      throw new Error('Failed to parse AI response as JSON')
+    }
 
     return NextResponse.json({
       batchPlan,
@@ -151,12 +227,17 @@ Return ONLY valid JSON with this structure:
     })
 
   } catch (error) {
-    console.error('Error generating batch plan:', error)
+    console.error('❌ Error generating batch plan:', error)
+    
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    const errorDetails = error instanceof Error ? error.stack : undefined
     
     return NextResponse.json(
       { 
         error: 'Failed to generate batch plan',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        message: errorMessage,
+        details: errorDetails,
+        hint: 'Check that all required fields are present and your API key is valid'
       },
       { status: 500 }
     )

@@ -4,32 +4,6 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Navigation from '../../../components/Navigation'
 
-// Localization dictionary for British vs American English
-const getLocalizedToneLabel = (tone: string, language: string) => {
-  const isBritish = language?.includes('British') || language?.includes('UK')
-  
-  const labels: Record<string, { british: string; american: string }> = {
-    emotional: { british: 'Emotional', american: 'Emotional' },
-    calming: { british: 'Calming', american: 'Calming' },
-    storytelling: { british: 'Storytelling', american: 'Storytelling' },
-    educational: { british: 'Educational', american: 'Educational' },
-    humor: { british: 'Humour', american: 'Humor' },
-    humour: { british: 'Humour', american: 'Humor' },
-    // Add more tone labels as needed
-    inspirational: { british: 'Inspirational', american: 'Inspirational' },
-    motivational: { british: 'Motivational', american: 'Motivational' },
-    conversational: { british: 'Conversational', american: 'Conversational' },
-  }
-  
-  const toneLower = tone.toLowerCase()
-  if (labels[toneLower]) {
-    return isBritish ? labels[toneLower].british : labels[toneLower].american
-  }
-  
-  // Fallback: capitalize first letter
-  return tone.charAt(0).toUpperCase() + tone.slice(1)
-}
-
 export default function NewProjectPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
@@ -72,17 +46,12 @@ export default function NewProjectPage() {
         const parsedRegional = JSON.parse(regionalData)
         setRegional(parsedRegional)
       } else {
-        // Determine default language from profile
-        const language = parsedProfile.languageVariant || 
-                        (parsedProfile.targetAudience === 'United Kingdom' ? 'British English' : 
-                         parsedProfile.country === 'United Kingdom' ? 'British English' : 'American English')
-        
         const defaultRegional = {
-          location: parsedProfile.targetAudience || parsedProfile.country || 'United Kingdom',
-          countryCode: parsedProfile.country === 'United Kingdom' ? 'GB' : 'US',
+          location: 'United Kingdom',
+          countryCode: 'GB',
           hemisphere: 'Northern',
-          timezone: parsedProfile.country === 'United Kingdom' ? 'Europe/London' : 'America/New_York',
-          language: language,
+          timezone: 'Europe/London',
+          language: 'British English',
           holidays: []
         }
         setRegional(defaultRegional)
@@ -129,30 +98,32 @@ export default function NewProjectPage() {
           uniqueAngle: profile.uniqueAngle || '',
           signatureTone: profile.signatureTone || {
             primary: 'storytelling',
-            secondary: 'educational',
+            secondary: 'emotional',
             accent: 'humor'
           },
-          wontCover: profile.wontCover || [],
           catchphrases: profile.catchphrases || [],
-          targetAudience: profile.targetAudience || profile.country,
-          languageVariant: profile.languageVariant || regional.language
+          boundaries: profile.boundaries || {
+            wontCover: [],
+            privacyLimits: []
+          }
         },
         regional: {
-          location: regional.location,
-          countryCode: regional.countryCode,
-          hemisphere: regional.hemisphere,
-          timezone: regional.timezone,
-          language: regional.language,
+          location: regional.location || 'United Kingdom',
+          countryCode: regional.countryCode || 'GB',
+          hemisphere: regional.hemisphere || 'Northern',
+          timezone: regional.timezone || 'Europe/London',
+          language: regional.language || 'British English',
           holidays: regional.holidays || []
         },
+        customEvents: [],
+        existingTopics: [],
         productionMode
       }
 
-      console.log('📤 Sending request to generate topics:', requestBody)
-
-      // Try the streaming endpoint first, fall back to non-streaming
-      let endpoint = '/api/topics/generate-stream'
-      let response = await fetch(endpoint, {
+      console.log('📤 Starting stream request...')
+      
+      // Use fetch with streaming
+      const response = await fetch('/api/topics/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -160,149 +131,83 @@ export default function NewProjectPage() {
         body: JSON.stringify(requestBody),
       })
 
-      // If 404, try the non-streaming endpoint
-      if (response.status === 404) {
-        console.log('⚠️ Streaming endpoint not found, trying /api/topics/generate')
-        endpoint = '/api/topics/generate'
-        response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(requestBody),
-        })
-      }
-
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Failed to generate topics' }))
-        throw new Error(errorData.error || `Server error: ${response.status}`)
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
-      // Check if response is streaming (Server-Sent Events) or regular JSON
-      const contentType = response.headers.get('content-type')
-      const isStreaming = contentType?.includes('text/event-stream')
+      if (!response.body) {
+        throw new Error('No response body')
+      }
 
-      if (isStreaming) {
-        // Handle streaming response
-        const reader = response.body?.getReader()
-        if (!reader) {
-          throw new Error('No response stream available')
+      // Read the stream
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      setProgress('Generating topics...')
+
+      while (true) {
+        const { done, value } = await reader.read()
+        
+        if (done) {
+          console.log('✅ Stream complete')
+          break
         }
 
-        const decoder = new TextDecoder()
-        let buffer = ''
+        // Decode chunk and add to buffer
+        buffer += decoder.decode(value, { stream: true })
         
-        while (true) {
-          const { done, value } = await reader.read()
-          
-          if (done) {
-            console.log('✅ Stream completed')
-            break
-          }
+        // Process complete messages
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop() || '' // Keep incomplete line in buffer
 
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6))
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              
+              if (data.type === 'progress') {
+                setProgress(`Generating... (${data.received} characters received)`)
+              } else if (data.type === 'complete') {
+                console.log('✅ Topics generated:', data.topics.length)
                 
-                if (data.type === 'progress') {
-                  setProgress(data.message)
-                } else if (data.type === 'topic') {
-                  setGeneratedTopics(prev => [...prev, data.topic])
-                } else if (data.type === 'complete') {
-                  setProgress('Saving topics to project...')
-                  
-                  // Save the topics to project
-                  const topics = data.topics || []
-                  console.log('💾 Saving', topics.length, 'topics to project')
-                  
-                  // Create new project with topics
-                  const newProject = {
-                    id: Date.now().toString(),
-                    name: projectName,
-                    month: month,
-                    topics: topics,
-                    scripts: [],
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                    videosPerDay: videosPerDay,
-                    bufferVideos: bufferVideos,
-                    productionMode: productionMode,
-                    toneMix: toneMix,
-                  }
-                  
-                  // Save to localStorage
-                  try {
-                    const existingProjects = JSON.parse(localStorage.getItem('projects') || '[]')
-                    existingProjects.push(newProject)
-                    localStorage.setItem('projects', JSON.stringify(existingProjects))
-                    console.log('✅ Project saved to localStorage')
-                    
-                    setProgress('Complete! Redirecting to dashboard...')
-                    
-                    setTimeout(() => {
-                      router.push('/dashboard')
-                    }, 1500)
-                  } catch (saveError) {
-                    console.error('❌ Error saving project:', saveError)
-                    setError('Topics generated but failed to save project')
-                  }
-                  
-                } else if (data.type === 'error') {
-                  throw new Error(data.error || 'Unknown error')
+                // Add unique IDs to each topic
+                const topicsWithIds = data.topics.map((topic: any, index: number) => ({
+                  ...topic,
+                  id: `${Date.now()}-${index}`, // Unique ID for each topic
+                  order: index + 1
+                }))
+                
+                setGeneratedTopics(topicsWithIds)
+                setProgress(`Successfully generated ${topicsWithIds.length} topics!`)
+                
+                // Save project
+                const projectId = Date.now().toString()
+                const newProject = {
+                  id: projectId,
+                  name: projectName,
+                  month,
+                  createdAt: new Date().toISOString(),
+                  topics: topicsWithIds,
+                  status: 'planning'
                 }
-              } catch (parseError) {
-                console.error('Failed to parse SSE data:', parseError)
+
+                const existingProjects = JSON.parse(localStorage.getItem('projects') || '[]')
+                existingProjects.push(newProject)
+                localStorage.setItem('projects', JSON.stringify(existingProjects))
+
+                // Redirect after 2 seconds to show success
+                setTimeout(() => {
+                  router.push('/dashboard')
+                }, 2000)
+                
+              } else if (data.type === 'error') {
+                throw new Error(data.error || 'Unknown error')
               }
+            } catch (parseError) {
+              console.error('Failed to parse SSE data:', parseError)
             }
           }
-        }
-      } else {
-        // Handle regular JSON response
-        const data = await response.json()
-        
-        if (data.topics && Array.isArray(data.topics)) {
-          setProgress('Saving topics to project...')
-          setGeneratedTopics(data.topics)
-          console.log('💾 Saving', data.topics.length, 'topics to project')
-          
-          // Create new project with topics
-          const newProject = {
-            id: Date.now().toString(),
-            name: projectName,
-            month: month,
-            topics: data.topics,
-            scripts: [],
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            videosPerDay: videosPerDay,
-            bufferVideos: bufferVideos,
-            productionMode: productionMode,
-            toneMix: toneMix,
-          }
-          
-          // Save to localStorage
-          try {
-            const existingProjects = JSON.parse(localStorage.getItem('projects') || '[]')
-            existingProjects.push(newProject)
-            localStorage.setItem('projects', JSON.stringify(existingProjects))
-            console.log('✅ Project saved to localStorage')
-            
-            setProgress('Complete! Redirecting to dashboard...')
-            
-            setTimeout(() => {
-              router.push('/dashboard')
-            }, 1500)
-          } catch (saveError) {
-            console.error('❌ Error saving project:', saveError)
-            setError('Topics generated but failed to save project')
-          }
-        } else {
-          throw new Error('Invalid response format from API')
         }
       }
       
@@ -443,12 +348,14 @@ export default function NewProjectPage() {
               </div>
 
               <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-                <p className="text-sm text-blue-900 font-medium">
-                  Total videos needed: <span className="font-bold">{totalVideos}</span>
-                </p>
-                <p className="text-xs text-blue-700 mt-1">
-                  ({daysInMonth} days × {videosPerDay} {videosPerDay === 1 ? 'video' : 'videos'} + {bufferVideos} buffer)
-                </p>
+                <div className="text-sm text-blue-900">
+                  <strong>Total videos needed:</strong> {totalVideos}
+                  {month && (
+                    <span className="ml-2 text-blue-700">
+                      ({daysInMonth} days × {videosPerDay} + {bufferVideos} buffer)
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -514,7 +421,7 @@ export default function NewProjectPage() {
             </div>
           </div>
 
-          {/* Tone Mix - WITH LOCALIZATION */}
+          {/* Tone Mix */}
           <div>
             <h2 className="text-xl font-semibold mb-4">3. Tone Mix</h2>
             
@@ -522,8 +429,8 @@ export default function NewProjectPage() {
               {Object.entries(toneMix).map(([tone, value]) => (
                 <div key={tone}>
                   <div className="flex justify-between mb-1">
-                    <label className="text-sm font-medium text-gray-700">
-                      {getLocalizedToneLabel(tone, regional?.language || profile?.languageVariant || '')}
+                    <label className="text-sm font-medium text-gray-700 capitalize">
+                      {tone}
                     </label>
                     <span className="text-sm text-gray-600">{value}%</span>
                   </div>
@@ -571,13 +478,19 @@ export default function NewProjectPage() {
             <button
               onClick={handleGenerateTopics}
               disabled={generating || !projectName || !month}
-              className={`w-full py-3 px-4 rounded-md font-medium transition-colors ${
-                generating || !projectName || !month
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
-              }`}
+              className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
             >
-              {generating ? 'Generating Topics...' : 'Generate Topics with AI'}
+              {generating ? (
+                <span className="flex items-center justify-center">
+                  <svg className="animate-spin h-5 w-5 mr-3" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Generating Topics...
+                </span>
+              ) : (
+                `Generate ${totalVideos} Topics`
+              )}
             </button>
           </div>
         </div>
