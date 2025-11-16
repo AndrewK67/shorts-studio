@@ -87,7 +87,7 @@ export function getRegionalConfig(countryCode: string): RegionalConfig | null {
   return regionalConfigs[countryCode.toUpperCase()] || null
 }
 
-export function getHolidaysForMonth(countryCode: string, month: number): Holiday[] {
+export function getHolidaysForMonth(countryCode: string, year: number, month: number): Holiday[] {
   const config = getRegionalConfig(countryCode)
   if (!config) return []
 
