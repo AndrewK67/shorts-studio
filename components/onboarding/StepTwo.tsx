@@ -214,7 +214,7 @@ export default function StepTwo({ onNext, onBack, initialData }: StepTwoProps) {
               <div>
                 <p className="text-sm font-medium text-green-800 mb-2">Cultural Notes:</p>
                 <ul className="text-sm text-green-700 space-y-1">
-                  {targetConfig.culturalNotes.slice(0, 3).map((note, i) => (
+                  {targetConfig.configData.culturalNotes.slice(0, 3).map((note, i) => (
                     <li key={i}>• {note}</li>
                   ))}
                 </ul>

@@ -33,6 +33,7 @@ export interface RegionalConfig {
     holidays: Holiday[];
     culturalEvents: CulturalEvent[];
     seasonalThemes: string[];
+    culturalNotes: string[];  // ← ADDED THIS LINE TO FIX THE BUILD ERROR
   };
   isActive: boolean;
   createdAt: string;
