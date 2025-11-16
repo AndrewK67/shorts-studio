@@ -5,6 +5,11 @@ export interface RegionalConfig {
   country: string
   languageVariant: string
   targetAudience: string
+  language: string
+  dateFormat: string
+  currency: string
+  currencySymbol: string
+  timezone: string
   holidays: Holiday[]
 }
 
@@ -21,6 +26,11 @@ const regionalConfigs: Record<string, RegionalConfig> = {
     country: 'United Kingdom',
     languageVariant: 'British English',
     targetAudience: 'United Kingdom',
+    language: 'British English',
+    dateFormat: 'DD/MM/YYYY',
+    currency: 'Pound Sterling',
+    currencySymbol: '£',
+    timezone: 'GMT/BST',
     holidays: [
       { name: 'Christmas Day', date: '12-25', type: 'cultural' },
       { name: 'Boxing Day', date: '12-26', type: 'cultural' },
@@ -36,6 +46,11 @@ const regionalConfigs: Record<string, RegionalConfig> = {
     country: 'United States',
     languageVariant: 'American English',
     targetAudience: 'United States',
+    language: 'American English',
+    dateFormat: 'MM/DD/YYYY',
+    currency: 'US Dollar',
+    currencySymbol: '$',
+    timezone: 'EST/EDT',
     holidays: [
       { name: "New Year's Day", date: '01-01', type: 'national' },
       { name: 'Martin Luther King Jr. Day', date: '01-20', type: 'national' },
@@ -52,6 +67,11 @@ const regionalConfigs: Record<string, RegionalConfig> = {
     country: 'Canada',
     languageVariant: 'Canadian English',
     targetAudience: 'Canada',
+    language: 'Canadian English',
+    dateFormat: 'DD/MM/YYYY',
+    currency: 'Canadian Dollar',
+    currencySymbol: 'C$',
+    timezone: 'EST/EDT',
     holidays: [
       { name: "New Year's Day", date: '01-01', type: 'national' },
       { name: 'Family Day', date: '02-17', type: 'national' },
@@ -70,6 +90,11 @@ const regionalConfigs: Record<string, RegionalConfig> = {
     country: 'Australia',
     languageVariant: 'Australian English',
     targetAudience: 'Australia',
+    language: 'Australian English',
+    dateFormat: 'DD/MM/YYYY',
+    currency: 'Australian Dollar',
+    currencySymbol: 'A$',
+    timezone: 'AEST/AEDT',
     holidays: [
       { name: "New Year's Day", date: '01-01', type: 'national' },
       { name: 'Australia Day', date: '01-26', type: 'national' },
@@ -83,14 +108,17 @@ const regionalConfigs: Record<string, RegionalConfig> = {
   },
 }
 
-export function getRegionalConfig(countryCode: string): RegionalConfig | null {
-  return regionalConfigs[countryCode.toUpperCase()] || null
+export function getRegionalConfig(countryCode: string): RegionalConfig {
+  return regionalConfigs[countryCode.toUpperCase()] || regionalConfigs['US']
+}
+
+export function getRegionalConfigSafe(countryCode: string): RegionalConfig {
+  return regionalConfigs[countryCode.toUpperCase()] || regionalConfigs['US']
 }
 
 export function getHolidaysForMonth(countryCode: string, year: number, month: number): Holiday[] {
   const config = getRegionalConfig(countryCode)
-  if (!config) return []
-
+  
   return config.holidays.filter(holiday => {
     const holidayMonth = parseInt(holiday.date.split('-')[0])
     return holidayMonth === month
