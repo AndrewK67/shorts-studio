@@ -1,7 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
-import { redirect, notFound } from 'next/navigation'
+import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import Navigation from '@/components/Navigation' // Adjust path if needed
+import Navigation from '@/components/Navigation'
+import TopicSelector from './TopicSelector' // Import our new component
 
 interface ProjectPageProps {
   params: {
@@ -17,30 +18,18 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     redirect('/login')
   }
 
-  // Fetch the specific project
-  // We select '*' to get all columns (id, name, month, etc.)
   const { data: project, error } = await supabase
     .from('projects')
-    .select(`
-      *,
-      topics (*) 
-    `) // Also fetch related topics
+    .select(`*, topics (*)`)
     .eq('id', params.id)
-    .eq('profile_id', user.id) // Security check: ensure user owns it
+    .eq('profile_id', user.id)
     .single()
 
   if (error || !project) {
-    console.error('Error fetching project:', error)
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
         <h1 className="text-2xl font-bold text-gray-900 mb-4">Project not found</h1>
-        <p className="text-gray-600 mb-8">This project does not exist or you do not have permission to view it.</p>
-        <Link 
-          href="/dashboard"
-          className="text-blue-600 hover:underline"
-        >
-          &larr; Back to Dashboard
-        </Link>
+        <Link href="/dashboard" className="text-blue-600 hover:underline">&larr; Back to Dashboard</Link>
       </div>
     )
   }
@@ -50,7 +39,6 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       <Navigation />
       
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        {/* Header / Breadcrumbs */}
         <div className="mb-6">
           <div className="flex items-center text-sm text-gray-500 mb-4">
             <Link href="/dashboard" className="hover:text-gray-700">Dashboard</Link>
@@ -61,54 +49,18 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
           <div className="flex justify-between items-start">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">{project.name}</h1>
-              <p className="text-gray-500 mt-1">
-                {project.month} • {project.production_mode}
-              </p>
-            </div>
-            
-            {/* Action Buttons (Placeholders for now) */}
-            <div className="flex gap-3">
-               <button className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-50 text-sm font-medium">
-                 Edit Settings
-               </button>
-               <button className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 text-sm font-medium">
-                 Generate Scripts
-               </button>
+              <p className="text-gray-500 mt-1">{project.month} • {project.production_mode}</p>
             </div>
           </div>
         </div>
 
-        {/* Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          {/* Main Content: Topics List */}
+          {/* Interactive Topics List */}
           <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white shadow rounded-lg p-6">
-              <h2 className="text-lg font-medium text-gray-900 mb-4">Generated Topics</h2>
-              
-              {project.topics && project.topics.length > 0 ? (
-                <ul className="divide-y divide-gray-200">
-                  {project.topics.map((topic: any) => (
-                    <li key={topic.id} className="py-4">
-                      <div className="flex justify-between">
-                        <div>
-                          <h3 className="text-sm font-medium text-gray-900">{topic.title}</h3>
-                          <p className="text-sm text-gray-500 mt-1">{topic.hook}</p>
-                        </div>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {topic.tone || 'General'}
-                        </span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-gray-500 text-sm">No topics found for this project.</p>
-              )}
-            </div>
+            <TopicSelector topics={project.topics} projectId={project.id} />
           </div>
 
-          {/* Sidebar: Project Stats */}
+          {/* Sidebar Stats */}
           <div className="space-y-6">
             <div className="bg-white shadow rounded-lg p-6">
               <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4">Project Stats</h2>
@@ -135,7 +87,6 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
               </dl>
             </div>
           </div>
-
         </div>
       </main>
     </div>
