@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Navigation from '@/components/Navigation'
 import { createClient } from '@/lib/supabase/client'
 
-// Localization dictionary (kept the same)
+// Localization dictionary
 const getLocalizedToneLabel = (tone: string, language: string) => {
   const isBritish = language?.includes('British') || language?.includes('UK')
   const labels: Record<string, { british: string; american: string }> = {
@@ -239,14 +239,14 @@ export default function NewProjectPage() {
             throw new Error(`Failed to save project: ${projectError.message}`)
         }
 
-        // 2. Insert Topics - WITH ROBUST DEFAULTS
-        // This protects against "null" errors if AI misses a field
+        // 2. Insert Topics - WITH ROBUST DEFAULTS & TONE FIX
         const topicsToInsert = topics.map((t: any) => ({
             project_id: projectData.id,
             title: t.title || 'Untitled Topic',
             hook: t.hook || '',
             core_value: t.coreValue || t.core_value || '', 
-            emotional_driver: t.emotionalDriver || t.emotional_driver || ''
+            emotional_driver: t.emotionalDriver || t.emotional_driver || '',
+            tone: t.tone || 'General' // <-- THIS LINE FIXES THE ERROR
         }))
 
         const { error: topicsError } = await supabase
