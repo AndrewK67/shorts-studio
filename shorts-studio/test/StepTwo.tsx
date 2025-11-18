@@ -1,5 +1,4 @@
 // src/components/onboarding/StepTwo.tsx
-// FIXED VERSION - Corrected type access for RegionalConfig
 // Updated to capture BOTH creator location and target audience
 
 'use client';
@@ -215,8 +214,7 @@ export default function StepTwo({ onNext, onBack, initialData }: StepTwoProps) {
               <div>
                 <p className="text-sm font-medium text-green-800 mb-2">Cultural Notes:</p>
                 <ul className="text-sm text-green-700 space-y-1">
-                  {/* 🔧 FIX: Removed .configData - culturalNotes is a direct property */}
-                  {targetConfig.culturalNotes.slice(0, 3).map((note, i) => (
+                  {targetConfig.configData.culturalNotes.slice(0, 3).map((note, i) => (
                     <li key={i}>• {note}</li>
                   ))}
                 </ul>
