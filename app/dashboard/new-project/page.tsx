@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import Navigation from '../../../components/Navigation'
+import Navigation from '@/components/Navigation' // Adjusted import path
+import { createClient } from '@/lib/supabase/client' // Import Supabase client
 
 // Localization dictionary for British vs American English
 const getLocalizedToneLabel = (tone: string, language: string) => {
@@ -15,7 +16,6 @@ const getLocalizedToneLabel = (tone: string, language: string) => {
     educational: { british: 'Educational', american: 'Educational' },
     humor: { british: 'Humour', american: 'Humor' },
     humour: { british: 'Humour', american: 'Humor' },
-    // Add more tone labels as needed
     inspirational: { british: 'Inspirational', american: 'Inspirational' },
     motivational: { british: 'Motivational', american: 'Motivational' },
     conversational: { british: 'Conversational', american: 'Conversational' },
@@ -32,6 +32,8 @@ const getLocalizedToneLabel = (tone: string, language: string) => {
 
 export default function NewProjectPage() {
   const router = useRouter()
+  const supabase = createClient() // Initialize Supabase client
+  
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState<string>('')
@@ -54,54 +56,80 @@ export default function NewProjectPage() {
     humor: 10,
   })
 
-  // Load profile and regional data
+  // Load profile and regional data from Supabase
   useEffect(() => {
-    try {
-      const profileData = localStorage.getItem('userProfile')
-      const regionalData = localStorage.getItem('regionalSettings')
-      
-      if (!profileData) {
-        router.push('/dashboard')
-        return
-      }
-      
-      const parsedProfile = JSON.parse(profileData)
-      setProfile(parsedProfile)
-      
-      if (regionalData) {
-        const parsedRegional = JSON.parse(regionalData)
-        setRegional(parsedRegional)
-      } else {
-        // Determine default language from profile
-        const language = parsedProfile.languageVariant || 
-                        (parsedProfile.targetAudience === 'United Kingdom' ? 'British English' : 
-                         parsedProfile.country === 'United Kingdom' ? 'British English' : 'American English')
+    const loadData = async () => {
+      try {
+        // 1. Check Authentication
+        const { data: { user } } = await supabase.auth.getUser()
+        
+        if (!user) {
+          router.push('/login')
+          return
+        }
+
+        // 2. Fetch Profile from DB
+        const { data: profileData, error } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single()
+
+        if (error) throw error
+
+        if (!profileData) {
+          // If no profile exists, redirect to create one (optional, or handle gracefully)
+          setError('User profile not found.')
+          setLoading(false)
+          return
+        }
+
+        // 3. Map DB columns (snake_case) to component state (camelCase)
+        // We use defaults for fields that might be JSON or missing
+        const mappedProfile = {
+            ...profileData,
+            uniqueAngle: profileData.unique_angle,
+            languageVariant: profileData.language_variant,
+            targetAudience: profileData.target_audience,
+            // Use safe defaults if these JSON columns are empty
+            signatureTone: profileData.signature_tone || { primary: 'storytelling', secondary: 'educational', accent: 'humor' },
+            wontCover: profileData.wont_cover || [],
+            catchphrases: profileData.catchphrases || [],
+            country: profileData.country || 'United Kingdom'
+        }
+        setProfile(mappedProfile)
+        
+        // 4. Set Regional Settings (Derived from profile)
+        const language = mappedProfile.languageVariant || 
+                         (mappedProfile.targetAudience === 'United Kingdom' ? 'British English' : 
+                          mappedProfile.country === 'United Kingdom' ? 'British English' : 'American English')
         
         const defaultRegional = {
-          location: parsedProfile.targetAudience || parsedProfile.country || 'United Kingdom',
-          countryCode: parsedProfile.country === 'United Kingdom' ? 'GB' : 'US',
+          location: mappedProfile.targetAudience || mappedProfile.country || 'United Kingdom',
+          countryCode: mappedProfile.country === 'United Kingdom' ? 'GB' : 'US',
           hemisphere: 'Northern',
-          timezone: parsedProfile.country === 'United Kingdom' ? 'Europe/London' : 'America/New_York',
+          timezone: mappedProfile.country === 'United Kingdom' ? 'Europe/London' : 'America/New_York',
           language: language,
-          holidays: []
+          holidays: [] // Holidays would ideally be fetched from an API or DB
         }
         setRegional(defaultRegional)
-        localStorage.setItem('regionalSettings', JSON.stringify(defaultRegional))
+        setLoading(false)
+
+      } catch (err) {
+        console.error('Error loading data:', err)
+        setError('Failed to load profile data. Please try refreshing.')
+        setLoading(false)
       }
-      
-      setLoading(false)
-    } catch (err) {
-      console.error('Error loading data:', err)
-      setError('Failed to load profile data')
-      setLoading(false)
     }
-  }, [router])
+
+    loadData()
+  }, [router, supabase])
 
   const daysInMonth = month ? new Date(new Date(month).getFullYear(), new Date(month).getMonth() + 1, 0).getDate() : 30
   const totalVideos = (daysInMonth * videosPerDay) + bufferVideos
 
   const handleGenerateTopics = async () => {
-    console.log('🎬 Starting streaming topic generation...')
+    console.log('🎬 Starting topic generation...')
     
     if (!profile || !regional) {
       setError('Profile or regional settings not loaded')
@@ -127,48 +155,32 @@ export default function NewProjectPage() {
         profile: {
           niche: profile.niche || '',
           uniqueAngle: profile.uniqueAngle || '',
-          signatureTone: profile.signatureTone || {
-            primary: 'storytelling',
-            secondary: 'educational',
-            accent: 'humor'
-          },
-          wontCover: profile.wontCover || [],
-          catchphrases: profile.catchphrases || [],
-          targetAudience: profile.targetAudience || profile.country,
-          languageVariant: profile.languageVariant || regional.language
+          signatureTone: profile.signatureTone,
+          wontCover: profile.wontCover,
+          catchphrases: profile.catchphrases,
+          targetAudience: profile.targetAudience,
+          languageVariant: profile.languageVariant
         },
-        regional: {
-          location: regional.location,
-          countryCode: regional.countryCode,
-          hemisphere: regional.hemisphere,
-          timezone: regional.timezone,
-          language: regional.language,
-          holidays: regional.holidays || []
-        },
+        regional,
         productionMode
       }
 
-      console.log('📤 Sending request to generate topics:', requestBody)
+      console.log('📤 Sending request:', requestBody)
 
-      // Try the streaming endpoint first, fall back to non-streaming
+      // Try streaming endpoint
       let endpoint = '/api/topics/generate-stream'
       let response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
       })
 
-      // If 404, try the non-streaming endpoint
       if (response.status === 404) {
-        console.log('⚠️ Streaming endpoint not found, trying /api/topics/generate')
+        console.log('⚠️ Streaming not found, trying standard...')
         endpoint = '/api/topics/generate'
         response = await fetch(endpoint, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(requestBody),
         })
       }
@@ -178,27 +190,19 @@ export default function NewProjectPage() {
         throw new Error(errorData.error || `Server error: ${response.status}`)
       }
 
-      // Check if response is streaming (Server-Sent Events) or regular JSON
+      // Handle Streaming Response
       const contentType = response.headers.get('content-type')
-      const isStreaming = contentType?.includes('text/event-stream')
-
-      if (isStreaming) {
-        // Handle streaming response
+      if (contentType?.includes('text/event-stream')) {
         const reader = response.body?.getReader()
-        if (!reader) {
-          throw new Error('No response stream available')
-        }
+        if (!reader) throw new Error('No response stream')
 
         const decoder = new TextDecoder()
         let buffer = ''
+        let finalTopics: any[] = [] // Collect topics as they stream in
         
         while (true) {
           const { done, value } = await reader.read()
-          
-          if (done) {
-            console.log('✅ Stream completed')
-            break
-          }
+          if (done) break
 
           buffer += decoder.decode(value, { stream: true })
           const lines = buffer.split('\n\n')
@@ -208,127 +212,102 @@ export default function NewProjectPage() {
             if (line.startsWith('data: ')) {
               try {
                 const data = JSON.parse(line.slice(6))
-                
-                if (data.type === 'progress') {
-                  setProgress(data.message)
-                } else if (data.type === 'topic') {
-                  setGeneratedTopics(prev => [...prev, data.topic])
-                } else if (data.type === 'complete') {
-                  setProgress('Saving topics to project...')
-                  
-                  // Save the topics to project
-                  const topics = data.topics || []
-                  console.log('💾 Saving', topics.length, 'topics to project')
-                  
-                  // Create new project with topics
-                  const newProject = {
-                    id: Date.now().toString(),
-                    name: projectName,
-                    month: month,
-                    topics: topics,
-                    scripts: [],
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                    videosPerDay: videosPerDay,
-                    bufferVideos: bufferVideos,
-                    productionMode: productionMode,
-                    toneMix: toneMix,
-                  }
-                  
-                  // Save to localStorage
-                  try {
-                    const existingProjects = JSON.parse(localStorage.getItem('projects') || '[]')
-                    existingProjects.push(newProject)
-                    localStorage.setItem('projects', JSON.stringify(existingProjects))
-                    console.log('✅ Project saved to localStorage')
-                    
-                    setProgress('Complete! Redirecting to dashboard...')
-                    
-                    setTimeout(() => {
-                      router.push('/dashboard')
-                    }, 1500)
-                  } catch (saveError) {
-                    console.error('❌ Error saving project:', saveError)
-                    setError('Topics generated but failed to save project')
-                  }
-                  
-                } else if (data.type === 'error') {
-                  throw new Error(data.error || 'Unknown error')
+                if (data.type === 'progress') setProgress(data.message)
+                else if (data.type === 'topic') {
+                    setGeneratedTopics(prev => [...prev, data.topic])
+                    finalTopics.push(data.topic)
                 }
-              } catch (parseError) {
-                console.error('Failed to parse SSE data:', parseError)
-              }
+                else if (data.type === 'complete') {
+                    // Handle Completion inside the stream loop
+                    await saveProjectToSupabase(data.topics || finalTopics)
+                }
+                else if (data.type === 'error') throw new Error(data.error)
+              } catch (e) { console.error('Parse error', e) }
             }
           }
         }
       } else {
-        // Handle regular JSON response
+        // Handle Standard JSON Response
         const data = await response.json()
-        
         if (data.topics && Array.isArray(data.topics)) {
-          setProgress('Saving topics to project...')
-          setGeneratedTopics(data.topics)
-          console.log('💾 Saving', data.topics.length, 'topics to project')
-          
-          // Create new project with topics
-          const newProject = {
-            id: Date.now().toString(),
-            name: projectName,
-            month: month,
-            topics: data.topics,
-            scripts: [],
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            videosPerDay: videosPerDay,
-            bufferVideos: bufferVideos,
-            productionMode: productionMode,
-            toneMix: toneMix,
-          }
-          
-          // Save to localStorage
-          try {
-            const existingProjects = JSON.parse(localStorage.getItem('projects') || '[]')
-            existingProjects.push(newProject)
-            localStorage.setItem('projects', JSON.stringify(existingProjects))
-            console.log('✅ Project saved to localStorage')
-            
-            setProgress('Complete! Redirecting to dashboard...')
-            
-            setTimeout(() => {
-              router.push('/dashboard')
-            }, 1500)
-          } catch (saveError) {
-            console.error('❌ Error saving project:', saveError)
-            setError('Topics generated but failed to save project')
-          }
+            setGeneratedTopics(data.topics)
+            await saveProjectToSupabase(data.topics)
         } else {
-          throw new Error('Invalid response format from API')
+            throw new Error('Invalid response format')
         }
       }
       
     } catch (err) {
-      console.error('❌ Error generating topics:', err)
+      console.error('❌ Error:', err)
       setError(err instanceof Error ? err.message : 'Failed to generate topics')
       setProgress('')
-    } finally {
       setGenerating(false)
+    }
+  }
+
+  // Separate function to handle the Supabase Save
+  const saveProjectToSupabase = async (topics: any[]) => {
+    setProgress('Saving to database...')
+    console.log('💾 Saving', topics.length, 'topics...')
+
+    try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) throw new Error('User not authenticated')
+
+        // 1. Insert Project
+        const { data: projectData, error: projectError } = await supabase
+            .from('projects')
+            .insert({
+                profile_id: user.id,
+                name: projectName,
+                month: `${month}-01`, // Fix date format for DB
+                videos_needed: totalVideos,
+                production_mode: productionMode,
+                tone_mix: toneMix
+            })
+            .select()
+            .single()
+
+        if (projectError) throw projectError
+
+        // 2. Insert Topics
+        const topicsToInsert = topics.map((t: any) => ({
+            project_id: projectData.id,
+            title: t.title,
+            hook: t.hook,
+            core_value: t.coreValue || t.core_value, 
+            emotional_driver: t.emotionalDriver || t.emotional_driver
+        }))
+
+        const { error: topicsError } = await supabase
+            .from('topics')
+            .insert(topicsToInsert)
+
+        if (topicsError) throw topicsError
+
+        console.log('✅ Saved to Supabase')
+        setProgress('Success! Redirecting...')
+        setTimeout(() => router.push('/dashboard'), 1500)
+
+    } catch (saveError) {
+        console.error('❌ Save error:', saveError)
+        setError('Generated topics but failed to save to database.')
+        setGenerating(false)
     }
   }
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <Navigation />
-        <div className="max-w-4xl mx-auto px-4 py-8">
-          <div className="text-center">Loading...</div>
-        </div>
+        {/* <Navigation /> Ensure Navigation handles hydration or remove if it causes issues */}
+        <div className="max-w-4xl mx-auto px-4 py-8 text-center">Loading profile...</div>
       </div>
     )
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Navigation />
+      <Navigation /> {/* Ensure this component is hydration-safe */}
       
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="mb-8">
@@ -360,20 +339,21 @@ export default function NewProjectPage() {
           </div>
         )}
 
+        {/* Only show topic list if we have some */}
         {generatedTopics.length > 0 && (
-          <div className="bg-green-50 border border-green-200 rounded mb-6 p-4">
-            <h3 className="font-semibold text-green-900 mb-2">
-              ✅ Generated {generatedTopics.length} Topics!
-            </h3>
-            <div className="text-sm text-green-700 space-y-1 max-h-48 overflow-y-auto">
-              {generatedTopics.slice(0, 5).map((topic, i) => (
-                <div key={i}>• {topic.title}</div>
-              ))}
-              {generatedTopics.length > 5 && (
-                <div className="text-green-600">...and {generatedTopics.length - 5} more</div>
-              )}
-            </div>
-          </div>
+           <div className="bg-green-50 border border-green-200 rounded mb-6 p-4">
+             <h3 className="font-semibold text-green-900 mb-2">
+               ✅ Generated {generatedTopics.length} Topics
+             </h3>
+             <div className="text-sm text-green-700 space-y-1 max-h-48 overflow-y-auto">
+               {generatedTopics.slice(0, 5).map((topic, i) => (
+                 <div key={i}>• {topic.title}</div>
+               ))}
+               {generatedTopics.length > 5 && (
+                 <div className="text-green-600">...and {generatedTopics.length - 5} more</div>
+               )}
+             </div>
+           </div>
         )}
 
         <div className="bg-white rounded-lg shadow-sm p-6 space-y-6">
@@ -514,7 +494,7 @@ export default function NewProjectPage() {
             </div>
           </div>
 
-          {/* Tone Mix - WITH LOCALIZATION */}
+          {/* Tone Mix */}
           <div>
             <h2 className="text-xl font-semibold mb-4">3. Tone Mix</h2>
             
