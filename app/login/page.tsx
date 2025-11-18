@@ -44,7 +44,7 @@ export default function LoginPage() {
           appearance={{ theme: ThemeSupa }}
           providers={['google', 'github']}
           theme="light"
-          redirectTo={${process.env.NEXT_PUBLIC_VERCEL_URL || 'http://localhost:3000'}/auth/callback}
+          redirectTo={`${process.env.NEXT_PUBLIC_VERCEL_URL || 'http://localhost:3000'}/auth/callback`}
         />
       </div>
     </div>
