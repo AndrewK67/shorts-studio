@@ -6,10 +6,9 @@ export const runtime = 'nodejs';
 
 export async function POST(req: Request) {
   try {
-    // We must initialize the client INSIDE the function to guarantee process.env is loaded.
-    // This is the CRITICAL FIX for the 500 error.
+    // This CRITICAL FIX ensures the key is loaded inside the function scope.
     if (!process.env.ANTHROPIC_API_KEY) {
-      return NextResponse.json({ error: 'ANTHROPIC_API_KEY is not set on the server.' }, { status: 500 });
+      return NextResponse.json({ error: 'Anthropic Error: ANTHROPIC_API_KEY is not set.' }, { status: 500 });
     }
 
     const anthropic = new Anthropic({
