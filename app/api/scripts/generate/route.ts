@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
-import { GoogleGenAI } from '@google/genai'; // <-- New Import
+import { GoogleGenAI } from '@google/genai'; 
 
 // This tells Vercel to use the Node.js runtime
 export const runtime = 'nodejs';
 
 export async function POST(req: Request) {
   try {
-    // --- CRITICAL FIX: Initialize client inside POST with GEMINI_API_KEY ---
-    // The Gemini SDK is much more stable in Vercel's environment.
+    // --- 1. KEY CHECK AND CLIENT INITIALIZATION ---
+    // This is the essential check to prevent the 500 crash
     if (!process.env.GEMINI_API_KEY) {
       return NextResponse.json({ error: 'GEMINI_API_KEY is not set on the server.' }, { status: 500 });
     }
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing required data for API generation.' }, { status: 400 });
     }
 
-    // --- 1. Construct the System Prompt (AI Persona & Rules) ---
+    // --- 2. Construct the System Prompt ---
     const systemInstruction = `You are a viral YouTube Shorts script writer specializing in the niche: "${userProfile.niche}". Your content must be 50-60 seconds long. Your output MUST be a single JSON object.
 
     Target Audience: ${userProfile.targetAudience} (${userProfile.languageVariant}).
@@ -47,12 +47,12 @@ export async function POST(req: Request) {
       }
     }`;
 
-    // --- 2. Construct the User Message (Specific Task) ---
+    // --- 3. Construct the User Message ---
     const userMessage = `Write the full viral script for the topic: "${topicTitle}". 
     The hook must be: "${topicHook}".
     Tone: Primary: "${userProfile.signatureTone.primary}", Accent: "${userProfile.signatureTone.accent}".`;
     
-    // --- 3. Call the Google Gen AI API ---
+    // --- 4. Call the Google Gen AI API ---
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: userMessage,
@@ -63,20 +63,20 @@ export async function POST(req: Request) {
         },
     });
 
-    const jsonString = response.text.trim();
+    // --- FINAL FIX: Using optional chaining (?) to prevent TypeScript build failure ---
+    const jsonString = response.text?.trim();
 
     if (!jsonString) {
       return NextResponse.json({ error: 'AI failed to generate content or returned an empty response.' }, { status: 500 });
     }
 
-    // The AI returns a JSON string; parse it and return the final structure.
+    // --- 5. Parse and Return ---
     const scriptJson = JSON.parse(jsonString);
 
     if (!scriptJson.script_content) {
         return NextResponse.json({ error: 'AI output missing script_content field.' }, { status: 500 });
     }
     
-    // Return the successful structured response
     return NextResponse.json({
         topic_id: '', 
         title: topicTitle,
@@ -87,7 +87,6 @@ export async function POST(req: Request) {
 
   } catch (error: any) {
     console.error('Script Generation Route Error:', error);
-    // Return a clear 500 error if the SDK or network fails
     return NextResponse.json({ error: `Server Error: ${error.message || 'Unknown API failure'}` }, { status: 500 });
   }
 }
