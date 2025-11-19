@@ -4,6 +4,17 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
+// --- Interface Definitions (Must match user_profiles table) ---
+interface UserProfile {
+  niche: string;
+  uniqueAngle: string;
+  signatureTone: any; 
+  wontCover: string[];
+  catchphrases: string[];
+  targetAudience: string;
+  languageVariant: string;
+}
+
 interface Topic {
   id: string
   title: string
@@ -15,10 +26,11 @@ interface Topic {
 interface TopicSelectorProps {
   topics: Topic[]
   projectId: string
-  productionMode: string // Pass production mode for script generation prompt
+  productionMode: string
+  userProfile: UserProfile // <-- NEW PROP
 }
 
-export default function TopicSelector({ topics, projectId, productionMode }: TopicSelectorProps) {
+export default function TopicSelector({ topics, projectId, productionMode, userProfile }: TopicSelectorProps) {
   const router = useRouter()
   const supabase = createClient()
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -47,12 +59,11 @@ export default function TopicSelector({ topics, projectId, productionMode }: Top
   const saveScriptsToSupabase = async (generatedScripts: any[]) => {
     setProgress('Saving scripts to database...')
 
-    // Map the generated scripts to the database schema
     const scriptsToInsert = generatedScripts.map(script => ({
       project_id: projectId,
-      topic_id: script.topic_id, // Assuming the API returns this
+      topic_id: script.topic_id, 
       title: script.title,
-      script_content: script.script_content, // Assuming the API returns this
+      script_content: script.script_content,
       tone: script.tone,
       production_mode: productionMode,
       status: 'draft',
@@ -82,22 +93,32 @@ export default function TopicSelector({ topics, projectId, productionMode }: Top
       const topicsToGenerate = topics.filter(t => selectedIds.has(t.id))
       const generatedScripts: any[] = []
       
-      // Simulate sequential API calls for demonstration
       for (const [index, topic] of topicsToGenerate.entries()) {
         setProgress(`Generating script for topic ${index + 1} of ${selectedIds.size}: ${topic.title}...`)
         
-        // This endpoint will call the AI model to generate content
+        const requestBody = {
+          // Data needed by the API route
+          topicId: topic.id,
+          topicTitle: topic.title,
+          topicHook: topic.hook,
+          productionMode: productionMode,
+          
+          // CRITICAL: Passing the required user profile data
+          userProfile: {
+            niche: userProfile.niche,
+            uniqueAngle: userProfile.uniqueAngle,
+            signatureTone: userProfile.signatureTone,
+            wontCover: userProfile.wontCover,
+            catchphrases: userProfile.catchphrases,
+            targetAudience: userProfile.targetAudience,
+            languageVariant: userProfile.languageVariant,
+          }
+        }
+        
         const response = await fetch('/api/scripts/generate', { 
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                projectId: projectId,
-                topicId: topic.id,
-                topicTitle: topic.title,
-                topicHook: topic.hook,
-                productionMode: productionMode,
-                // You would typically include the UserProfile and RegionalData here too
-            })
+            body: JSON.stringify(requestBody),
         })
 
         if (!response.ok) {
@@ -107,8 +128,7 @@ export default function TopicSelector({ topics, projectId, productionMode }: Top
 
         const scriptResult = await response.json()
         
-        // IMPORTANT: The API should return the generated script content.
-        // We'll mock a clean result structure here based on what's needed for the DB save.
+        // Push the result onto the array
         generatedScripts.push({
             topic_id: topic.id,
             title: topic.title,
@@ -117,11 +137,9 @@ export default function TopicSelector({ topics, projectId, productionMode }: Top
         })
       }
 
-      // 2. Save all generated scripts to the database
       const success = await saveScriptsToSupabase(generatedScripts)
 
       if (success) {
-        // 3. Navigate the user to the script list page for this project
         router.push(`/dashboard/project/${projectId}/scripts`)
       }
 

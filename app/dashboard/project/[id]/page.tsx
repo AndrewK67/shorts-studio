@@ -18,20 +18,39 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     redirect('/login')
   }
 
-  const { data: project, error } = await supabase
+  // 1. Fetch Project and Topics
+  const { data: project, error: projectError } = await supabase
     .from('projects')
     .select(`*, topics (*)`)
     .eq('id', params.id)
     .eq('profile_id', user.id)
     .single()
 
-  if (error || !project) {
+  // 2. Fetch User Profile
+  const { data: profile, error: profileError } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single()
+
+  if (projectError || !project || profileError || !profile) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
         <h1 className="text-2xl font-bold text-gray-900 mb-4">Project not found</h1>
         <Link href="/dashboard" className="text-blue-600 hover:underline">&larr; Back to Dashboard</Link>
       </div>
     )
+  }
+
+  // Map the profile data for consistency
+  const mappedProfile = {
+    ...profile,
+    uniqueAngle: profile.unique_angle,
+    languageVariant: profile.language_variant,
+    targetAudience: profile.target_audience,
+    signatureTone: profile.signature_tone || {},
+    wontCover: profile.wont_cover || [],
+    catchphrases: profile.catchphrases || [],
   }
 
   return (
@@ -56,11 +75,12 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            {/* FIX IS HERE: Passing the required productionMode prop */}
+            {/* PASSING PROFILE DOWN: Now TopicSelector has the profile data it needs */}
             <TopicSelector 
               topics={project.topics} 
               projectId={project.id} 
               productionMode={project.production_mode} 
+              userProfile={mappedProfile}
             />
           </div>
 
