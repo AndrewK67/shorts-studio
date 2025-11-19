@@ -24,7 +24,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'ANTHROPIC_API_KEY is not set on the server.' }, { status: 500 });
     }
     if (!topicTitle || !userProfile || !productionMode) {
-      // Log the missing fields for debugging
       console.error("Missing required fields in script generation request:", { topicTitle, productionMode, userProfile: !!userProfile });
       return NextResponse.json({ error: 'Missing required data for API generation.' }, { status: 400 });
     }
@@ -40,7 +39,7 @@ export async function POST(req: Request) {
     1. Hook: Start with the Hook provided, or an immediate, punchy variation.
     2. Tone: Maintain a primary tone of "${userProfile.signatureTone.primary}" with accents of "${userProfile.signatureTone.accent}".
     3. Constraints: DO NOT mention the following topics: ${userProfile.wontCover.join(', ')}.
-    4. Output Format: Return ONLY the script JSON object. Do not include any pre-amble, comments, or explanations outside the JSON block.
+    4. Output Format: Your entire response MUST be a single JSON object that conforms exactly to the JSON Schema provided below. Do not include any pre-amble, comments, or explanations outside the JSON block.
 
     JSON Schema:
     {
@@ -64,14 +63,13 @@ export async function POST(req: Request) {
       messages: [
         { role: "user", content: userMessage }
       ],
-      // Force the output to be JSON
-      response_format: { type: "json_object" }
+      // REMOVED: response_format: { type: "json_object" } <-- THIS WAS THE PROBLEM LINE
     });
 
     // Extract the JSON string from the response
     const jsonString = response.content?.[0]?.text;
     if (!jsonString) {
-      return NextResponse.json({ error: 'AI failed to generate valid JSON content.' }, { status: 500 });
+      return NextResponse.json({ error: 'AI failed to generate content or returned an empty response.' }, { status: 500 });
     }
 
     // The AI returns a JSON string; parse it and return the final structure.
@@ -84,7 +82,7 @@ export async function POST(req: Request) {
     
     // Return the successful structured response
     return NextResponse.json({
-        topic_id: '', // Will be added by the client side for safety
+        topic_id: '', // Placeholder, will be added by the client side for safety
         title: topicTitle,
         script_content: scriptJson.script_content,
         tone: userProfile.signatureTone.primary, // Re-use primary tone
@@ -93,7 +91,8 @@ export async function POST(req: Request) {
 
   } catch (error) {
     console.error('Script Generation Route Error:', error);
-    // Return a generic 500 error to the client
-    return NextResponse.json({ error: 'Internal Server Error during script generation.' }, { status: 500 });
+    // Attempt to return the specific Anthropic message if available
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error during script generation.';
+    return NextResponse.json({ error: `Internal Server Error: ${errorMessage}` }, { status: 500 });
   }
 }
