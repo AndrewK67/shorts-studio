@@ -63,11 +63,12 @@ export async function POST(req: Request) {
       messages: [
         { role: "user", content: userMessage }
       ],
-      // REMOVED: response_format: { type: "json_object" } <-- THIS WAS THE PROBLEM LINE
     });
 
-    // Extract the JSON string from the response
-    const jsonString = response.content?.[0]?.text;
+    // --- FIX IS HERE: SAFELY EXTRACT TEXT FROM CONTENT BLOCK ---
+    const textBlock = response.content?.find(block => block.type === 'text');
+    const jsonString = textBlock ? textBlock.text : null;
+
     if (!jsonString) {
       return NextResponse.json({ error: 'AI failed to generate content or returned an empty response.' }, { status: 500 });
     }
@@ -91,7 +92,6 @@ export async function POST(req: Request) {
 
   } catch (error) {
     console.error('Script Generation Route Error:', error);
-    // Attempt to return the specific Anthropic message if available
     const errorMessage = error instanceof Error ? error.message : 'Unknown error during script generation.';
     return NextResponse.json({ error: `Internal Server Error: ${errorMessage}` }, { status: 500 });
   }
