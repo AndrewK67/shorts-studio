@@ -43,7 +43,7 @@ export default async function DashboardPage() {
             {projects.map((project) => (
               <Link key={project.id} href={`/dashboard/project/${project.id}`}>
                 <div className="bg-white overflow-hidden shadow rounded-lg hover:shadow-md transition-shadow p-6 cursor-pointer block">
-                  {/* THE FIX: Using project.name instead of project.title */}
+                  {/* FIX: Using project.name */}
                   <h3 className="text-lg font-medium text-gray-900">{project.name || 'Untitled Project'}</h3>
                   <p className="mt-1 text-sm text-gray-500">
                     Created: {new Date(project.created_at).toLocaleDateString()}

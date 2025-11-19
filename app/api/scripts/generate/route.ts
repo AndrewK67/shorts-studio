@@ -1,18 +1,21 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-// Changed import from 'process' to avoid runtime issues
-// import { env } from 'process'; 
 
 // This tells Vercel to use the Node.js runtime
 export const runtime = 'nodejs';
 
-// Initialize the Anthropic client globally using standard process.env
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY, // Use standard process.env
-});
-
 export async function POST(req: Request) {
   try {
+    // We must initialize the client INSIDE the function to guarantee process.env is loaded.
+    // This is the CRITICAL FIX for the 500 error.
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return NextResponse.json({ error: 'ANTHROPIC_API_KEY is not set on the server.' }, { status: 500 });
+    }
+
+    const anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY, 
+    });
+
     const { 
       topicTitle, 
       topicHook, 
@@ -20,16 +23,11 @@ export async function POST(req: Request) {
       userProfile 
     } = await req.json();
 
-    // --- CRITICAL DATA VALIDATION ---
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return NextResponse.json({ error: 'ANTHROPIC_API_KEY is not set on the server.' }, { status: 500 });
-    }
     if (!topicTitle || !userProfile || !productionMode) {
       return NextResponse.json({ error: 'Missing required data for API generation.' }, { status: 400 });
     }
 
     // --- 1. Construct the System Prompt (AI Persona & Rules) ---
-    // (System prompt remains the same for brevity)
     const systemPrompt = `You are a viral YouTube Shorts script writer specializing in the niche: "${userProfile.niche}". Your content must be 50-60 seconds long.
     
     Target Audience: ${userProfile.targetAudience} (${userProfile.languageVariant}).
@@ -93,7 +91,7 @@ export async function POST(req: Request) {
 
   } catch (error: any) {
     console.error('Script Generation Route Error:', error);
-    // RETURN THE SPECIFIC ERROR MESSAGE FROM THE SDK
+    // Returning the specific error will help us debug if the key is wrong.
     return NextResponse.json({ error: `Anthropic Error: ${error.message || 'Unknown API failure'}` }, { status: 500 });
   }
 }
