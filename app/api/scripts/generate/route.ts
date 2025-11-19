@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { env } from 'process';
+// Changed import from 'process' to avoid runtime issues
+// import { env } from 'process'; 
 
-// This tells Vercel to use the Node.js runtime, which Anthropic SDK needs
+// This tells Vercel to use the Node.js runtime
 export const runtime = 'nodejs';
 
-// Initialize the Anthropic client using the environment variable
+// Initialize the Anthropic client globally using standard process.env
 const anthropic = new Anthropic({
-  apiKey: env.ANTHROPIC_API_KEY,
+  apiKey: process.env.ANTHROPIC_API_KEY, // Use standard process.env
 });
 
 export async function POST(req: Request) {
@@ -20,16 +21,15 @@ export async function POST(req: Request) {
     } = await req.json();
 
     // --- CRITICAL DATA VALIDATION ---
-    if (!env.ANTHROPIC_API_KEY) {
-      // Return a 401/500 if the key is missing (this is the most likely cause)
+    if (!process.env.ANTHROPIC_API_KEY) {
       return NextResponse.json({ error: 'ANTHROPIC_API_KEY is not set on the server.' }, { status: 500 });
     }
     if (!topicTitle || !userProfile || !productionMode) {
-      console.error("Missing required fields in script generation request:", { topicTitle, productionMode, userProfile: !!userProfile });
       return NextResponse.json({ error: 'Missing required data for API generation.' }, { status: 400 });
     }
 
     // --- 1. Construct the System Prompt (AI Persona & Rules) ---
+    // (System prompt remains the same for brevity)
     const systemPrompt = `You are a viral YouTube Shorts script writer specializing in the niche: "${userProfile.niche}". Your content must be 50-60 seconds long.
     
     Target Audience: ${userProfile.targetAudience} (${userProfile.languageVariant}).
@@ -96,4 +96,4 @@ export async function POST(req: Request) {
     // RETURN THE SPECIFIC ERROR MESSAGE FROM THE SDK
     return NextResponse.json({ error: `Anthropic Error: ${error.message || 'Unknown API failure'}` }, { status: 500 });
   }
-}# Temporary line to force deployment
+}
