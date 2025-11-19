@@ -21,6 +21,7 @@ export async function POST(req: Request) {
 
     // --- CRITICAL DATA VALIDATION ---
     if (!env.ANTHROPIC_API_KEY) {
+      // Return a 401/500 if the key is missing (this is the most likely cause)
       return NextResponse.json({ error: 'ANTHROPIC_API_KEY is not set on the server.' }, { status: 500 });
     }
     if (!topicTitle || !userProfile || !productionMode) {
@@ -57,7 +58,7 @@ export async function POST(req: Request) {
 
     // --- 3. Call the Anthropic API ---
     const response = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20240620", // Use a powerful model for script writing
+      model: "claude-3-5-sonnet-20240620", 
       max_tokens: 4000, 
       system: systemPrompt,
       messages: [
@@ -65,7 +66,7 @@ export async function POST(req: Request) {
       ],
     });
 
-    // --- FIX IS HERE: SAFELY EXTRACT TEXT FROM CONTENT BLOCK ---
+    // --- SAFELY EXTRACT TEXT FROM CONTENT BLOCK ---
     const textBlock = response.content?.find(block => block.type === 'text');
     const jsonString = textBlock ? textBlock.text : null;
 
@@ -83,16 +84,16 @@ export async function POST(req: Request) {
     
     // Return the successful structured response
     return NextResponse.json({
-        topic_id: '', // Placeholder, will be added by the client side for safety
+        topic_id: '', 
         title: topicTitle,
         script_content: scriptJson.script_content,
-        tone: userProfile.signatureTone.primary, // Re-use primary tone
-        ...scriptJson // Include duration, metadata, etc.
+        tone: userProfile.signatureTone.primary,
+        ...scriptJson 
     }, { status: 200 });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Script Generation Route Error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error during script generation.';
-    return NextResponse.json({ error: `Internal Server Error: ${errorMessage}` }, { status: 500 });
+    // RETURN THE SPECIFIC ERROR MESSAGE FROM THE SDK
+    return NextResponse.json({ error: `Anthropic Error: ${error.message || 'Unknown API failure'}` }, { status: 500 });
   }
 }
