@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import Navigation from '@/components/Navigation'
-import TopicSelector from './TopicSelector' // Import our new component
+import TopicSelector from './TopicSelector'
 
 interface ProjectPageProps {
   params: {
@@ -55,12 +55,15 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Interactive Topics List */}
           <div className="lg:col-span-2 space-y-6">
-            <TopicSelector topics={project.topics} projectId={project.id} />
+            {/* FIX IS HERE: Passing the required productionMode prop */}
+            <TopicSelector 
+              topics={project.topics} 
+              projectId={project.id} 
+              productionMode={project.production_mode} 
+            />
           </div>
 
-          {/* Sidebar Stats */}
           <div className="space-y-6">
             <div className="bg-white shadow rounded-lg p-6">
               <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4">Project Stats</h2>
@@ -72,17 +75,6 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
                  <div>
                   <dt className="text-xs text-gray-500">Topics Generated</dt>
                   <dd className="text-2xl font-semibold text-gray-900">{project.topics?.length || 0}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-gray-500">Tone Mix</dt>
-                  <dd className="mt-2">
-                    {project.tone_mix && Object.entries(project.tone_mix).map(([tone, val]: any) => (
-                      <div key={tone} className="flex items-center justify-between text-sm mb-1">
-                        <span className="capitalize text-gray-600">{tone}</span>
-                        <span className="font-medium text-gray-900">{val}%</span>
-                      </div>
-                    ))}
-                  </dd>
                 </div>
               </dl>
             </div>
